@@ -1,0 +1,53 @@
+{
+    "name": "pydance",
+    "displayName": "Pydance",
+    "description": "Python language server that provides high-performance workspace symbol search for large Python codebases",
+    "version": "0.1.0",
+    "publisher": "ToughType",
+    "private": true,
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/ram-nadella/python-language-server-experiments"
+    },
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "activationEvents": [
+        "workspaceContains:**/*.py"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "languages": [
+            {
+                "id": "python",
+                "aliases": [
+                    "Python",
+                    "python"
+                ],
+                "extensions": [
+                    ".py"
+                ]
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "pretest": "npm run compile"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^9.0.1"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "@types/vscode": "^1.85.0",
+        "typescript": "^5.3.0"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC"
+}
