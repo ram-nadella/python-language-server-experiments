@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="pydance/images/pydance-logo.png" alt="pydance logo">
+</div>
+
 This repo has language server experiments for python
 
 Initial attempts are focused on a high performance and low resource usage workspace symbol search
