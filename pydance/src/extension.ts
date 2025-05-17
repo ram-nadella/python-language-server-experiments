@@ -11,9 +11,9 @@ let client: LanguageClient;
 
 export function activate(context: vscode.ExtensionContext) {
     // Create output channel
-    const outputChannel = vscode.window.createOutputChannel("Python Fast Symbols");
+    const outputChannel = vscode.window.createOutputChannel("Pydance");
     outputChannel.show();
-    outputChannel.appendLine("Python Fast Symbols extension is activating...");
+    outputChannel.appendLine("Pydance extension is activating...");
 
     const serverPath = context.asAbsolutePath(
         path.join('server', 'target', 'release', 'symbol_search_lsp')
@@ -60,8 +60,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Create the language client and start the client.
     client = new LanguageClient(
-        'pythonFastSymbols',
-        'Python Fast Symbols',
+        'pydance',
+        'Pydance',
         // serverOptions,
         serverOptions,
         clientOptions
@@ -77,7 +77,7 @@ export function activate(context: vscode.ExtensionContext) {
     outputChannel.appendLine("Language client started.");
 
     // Register the workspace symbol provider command
-    const disposable = vscode.commands.registerCommand('python-fast-symbols.search', async () => {
+    const disposable = vscode.commands.registerCommand('pydance.search', async () => {
         const result = await vscode.commands.executeCommand('workbench.action.showAllSymbols');
         outputChannel.appendLine("Symbol search command executed");
     });
