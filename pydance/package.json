@@ -4,7 +4,7 @@
     "description": "Python language server that provides high-performance workspace symbol search for large Python codebases",
     "version": "0.1.2",
     "publisher": "ToughType",
-    "private": true,
+    "icon": "images/pydance-logo.png",
     "repository": {
         "type": "git",
         "url": "https://github.com/ram-nadella/python-language-server-experiments"
