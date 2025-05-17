@@ -2,7 +2,7 @@
     "name": "pydance",
     "displayName": "Pydance",
     "description": "Python language server that provides high-performance workspace symbol search for large Python codebases",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "publisher": "ToughType",
     "private": true,
     "repository": {
