@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="pydance/images/pydance-logo.png" alt="pydance logo">
+  <img src="pydance/images/pydance-logo.png" alt="pydance logo" width="200">
 </div>
 
 This repo has language server experiments for python
