@@ -21,7 +21,7 @@ use serde_json::{self, Value};
 
 use symbol_experiments::files::list_python_files;
 use symbol_experiments::python::parse_python_files_parallel;
-use symbol_experiments::search::{search_symbols, SearchAlgorithm};
+use symbol_experiments::search::search_symbols;
 use symbol_experiments::symbols::{PathRegistry, Symbol, SymbolData, SymbolStats, SymbolType};
 
 #[derive(ClapParser, Debug)]
@@ -38,10 +38,6 @@ struct Args {
     /// Load symbols from this file instead of scanning directory
     #[arg(short, long)]
     load: Option<PathBuf>,
-
-    /// Search algorithm to use (skim or nucleo)
-    #[arg(long, default_value = "skim")]
-    algorithm: SearchAlgorithm,
 
     /// Listen on this TCP port instead of using stdio
     #[arg(long)]
@@ -173,7 +169,6 @@ fn handle_workspace_symbol_request(
     functions: &HashSet<Symbol>,
     classes: &HashSet<Symbol>,
     path_registry: &PathRegistry,
-    algorithm: SearchAlgorithm,
 ) -> Vec<SymbolInformation> {
     // Convert to Arc types for the async function
     let functions_arc = Arc::new(functions.clone());
@@ -188,7 +183,6 @@ fn handle_workspace_symbol_request(
             functions_arc,
             classes_arc,
             path_registry_arc,
-            algorithm,
         ))
 }
 
@@ -198,7 +192,6 @@ async fn handle_workspace_symbol_request_async(
     functions: Arc<HashSet<Symbol>>,
     classes: Arc<HashSet<Symbol>>,
     path_registry: Arc<PathRegistry>,
-    algorithm: SearchAlgorithm,
 ) -> Vec<SymbolInformation> {
     info!(
         "Handling workspace symbol request asynchronously: query='{}'",
@@ -218,7 +211,6 @@ async fn handle_workspace_symbol_request_async(
         &classes,
         &path_registry,
         false,
-        algorithm,
     );
     let search_time = search_start.elapsed();
 
@@ -258,7 +250,6 @@ fn run_server(
     functions: HashSet<Symbol>,
     classes: HashSet<Symbol>,
     path_registry: PathRegistry,
-    algorithm: SearchAlgorithm,
     port: Option<u16>, // Added port argument
 ) -> Result<()> {
     info!(
@@ -266,7 +257,6 @@ fn run_server(
         functions.len(),
         classes.len()
     );
-    info!("Using search algorithm: {}", algorithm);
 
     // Create a tokio runtime for handling async tasks
     let rt = Runtime::new()?;
@@ -325,7 +315,6 @@ fn run_server(
                         let path_registry_clone = path_registry.clone();
                         let sender_clone = sender.clone();
                         let req_id = req.id.clone();
-                        let alg = algorithm;
 
                         match serde_json::from_value::<WorkspaceSymbolParams>(req.params) {
                             Ok(params) => {
@@ -341,7 +330,6 @@ fn run_server(
                                         functions_clone,
                                         classes_clone,
                                         path_registry_clone,
-                                        alg,
                                     )
                                     .await;
 
@@ -475,7 +463,7 @@ fn main() -> Result<()> {
     );
 
     // Run the LSP server with the loaded symbols
-    run_server(functions, classes, path_registry, args.algorithm, args.port)?;
+    run_server(functions, classes, path_registry, args.port)?;
 
     Ok(())
 }
@@ -745,7 +733,6 @@ mod tests {
             &functions,
             &classes,
             &registry,
-            SearchAlgorithm::Skim,
         );
         assert!(results.is_empty());
     }
@@ -783,7 +770,6 @@ mod tests {
             &functions,
             &classes,
             &registry,
-            SearchAlgorithm::Skim,
         );
         assert!(results.is_empty());
     }
@@ -817,7 +803,6 @@ mod tests {
             &functions,
             &classes,
             &registry,
-            SearchAlgorithm::Skim,
         );
         assert_eq!(results_func.len(), 1);
         assert!(results_func[0].name.starts_with("find_this_func"));
@@ -832,7 +817,6 @@ mod tests {
             &functions,
             &classes,
             &registry,
-            SearchAlgorithm::Skim,
         );
         assert_eq!(results_class.len(), 1);
         assert!(results_class[0].name.starts_with("FindThisClass"));
@@ -847,56 +831,11 @@ mod tests {
             &functions,
             &classes,
             &registry,
-            SearchAlgorithm::Skim,
         );
         let get_base_name =
             |s: &SymbolInformation| s.name.split(' ').next().unwrap_or("").to_string();
         assert_eq!(results_multi.len(), 2);
         let names: HashSet<String> = results_multi.iter().map(get_base_name).collect();
-        assert!(names.contains("find_this_func"));
-        assert!(names.contains("FindThisClass"));
-    }
-
-    #[test]
-    fn test_handle_workspace_symbol_request_nucleo_algorithm() {
-        let registry = create_test_path_registry();
-        let functions: HashSet<Symbol> = [create_test_symbol(
-            "find_this_func",
-            SymbolType::Function,
-            5,
-            0,
-            None,
-            "file1",
-        )]
-        .into_iter()
-        .collect();
-        let classes: HashSet<Symbol> = [create_test_symbol(
-            "FindThisClass",
-            SymbolType::Class,
-            15,
-            1,
-            None,
-            "file2",
-        )]
-        .into_iter()
-        .collect();
-
-        let params = WorkspaceSymbolParams {
-            query: "find".to_string(),
-            ..Default::default()
-        };
-        let results = handle_workspace_symbol_request(
-            params,
-            &functions,
-            &classes,
-            &registry,
-            SearchAlgorithm::Nucleo,
-        );
-
-        let get_base_name =
-            |s: &SymbolInformation| s.name.split(' ').next().unwrap_or("").to_string();
-        assert_eq!(results.len(), 2);
-        let names: HashSet<String> = results.iter().map(get_base_name).collect();
         assert!(names.contains("find_this_func"));
         assert!(names.contains("FindThisClass"));
     }

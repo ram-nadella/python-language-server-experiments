@@ -551,7 +551,7 @@ fn parse_file_and_update_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::search::{search_symbols, SearchAlgorithm};
+    use crate::search::search_symbols;
     use crate::symbols::{parse_python_file, PathRegistry, SymbolStats};
     use std::fs::{self, create_dir_all, File};
     use std::io::Write;
@@ -905,7 +905,6 @@ def function_at_line_25():
             &classes,
             &path_registry,
             false,
-            SearchAlgorithm::Nucleo,
         );
 
         // Print search results for debugging
@@ -971,7 +970,6 @@ def function_at_line_25():
             &classes,
             &path_registry,
             false,
-            SearchAlgorithm::Nucleo,
         );
         assert_eq!(
             results.len(),
@@ -1166,7 +1164,6 @@ class Class2_line9:
                 &classes,
                 &path_registry,
                 false,
-                SearchAlgorithm::Nucleo,
             );
             // Results should be unique - make sure we find exactly one match
             assert_eq!(
@@ -1266,7 +1263,6 @@ def function_two():
                 &classes,
                 &path_registry,
                 false,
-                crate::search::SearchAlgorithm::Nucleo,
             );
             assert_eq!(results.len(), 1, "Should find function_one");
 
@@ -1461,7 +1457,6 @@ def file3_func():
             &classes,
             &path_registry,
             false,
-            crate::search::SearchAlgorithm::Nucleo,
         );
         assert_eq!(
             results.len(),
