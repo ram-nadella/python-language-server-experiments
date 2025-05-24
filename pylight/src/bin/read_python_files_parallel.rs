@@ -1,17 +1,16 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser as ClapParser;
 use std::path::PathBuf;
-use std::time::Instant;
-use tokio::fs;
-use tokio::task;
-use tracing::{debug, info};
-use tracing_subscriber;
-use tracing_subscriber::EnvFilter;
-use walkdir::WalkDir;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Instant;
+use tokio::fs;
 use tokio::io::AsyncReadExt;
+use tokio::task;
+use tracing::{debug, info};
+use tracing_subscriber::EnvFilter;
+use walkdir::WalkDir;
 
 #[derive(ClapParser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -40,18 +39,23 @@ async fn process_file(
     let mut file = fs::File::open(&path).await?;
     let mut contents = Vec::with_capacity(file_size as usize);
     file.read_to_end(&mut contents).await?;
-    
+
     total_bytes.fetch_add(file_size, Ordering::SeqCst);
     let processed = processed_files.fetch_add(1, Ordering::SeqCst) + 1;
-    
+
     // Log progress every 5 seconds
     let now = std::time::Instant::now();
     let last = last_progress.load(Ordering::SeqCst);
     if now.elapsed().as_secs() - last >= 5 {
-        info!("Processed {}/{} files ({} bytes)", processed, total_files, total_bytes.load(Ordering::SeqCst));
+        info!(
+            "Processed {}/{} files ({} bytes)",
+            processed,
+            total_files,
+            total_bytes.load(Ordering::SeqCst)
+        );
         last_progress.store(now.elapsed().as_secs(), Ordering::SeqCst);
     }
-    
+
     Ok(())
 }
 
@@ -70,15 +74,18 @@ async fn main() -> Result<()> {
         anyhow::bail!("Directory does not exist: {}", args.directory.display());
     }
 
-    info!("Starting parallel scan of directory: {}", args.directory.display());
-    
+    info!(
+        "Starting parallel scan of directory: {}",
+        args.directory.display()
+    );
+
     // Shared counters for atomic updates
     let processed_files = Arc::new(AtomicU64::new(0));
     let total_bytes = Arc::new(AtomicU64::new(0));
     let last_progress = Arc::new(AtomicU64::new(0));
 
     // Determine number of parallel tasks
-    let num_tasks = args.parallel_tasks.unwrap_or_else(|| num_cpus::get());
+    let num_tasks = args.parallel_tasks.unwrap_or_else(num_cpus::get);
     info!("Using {} parallel tasks", num_tasks);
 
     // First, collect all Python files using synchronous walkdir
@@ -96,14 +103,18 @@ async fn main() -> Result<()> {
             debug!("Processed {} entries so far...", entries_processed);
         }
 
-        if entry.path().extension().map_or(false, |ext| ext == "py") {
+        if entry.path().extension().is_some_and(|ext| ext == "py") {
             python_files.push(entry.path().to_path_buf());
         }
     }
 
     let discovery_duration = discovery_start.elapsed();
-    info!("File discovery phase: Found {} Python files out of {} total entries in {:.2?}", 
-          python_files.len(), entries_processed, discovery_duration);
+    info!(
+        "File discovery phase: Found {} Python files out of {} total entries in {:.2?}",
+        python_files.len(),
+        entries_processed,
+        discovery_duration
+    );
 
     // Process files in parallel using async tasks
     let total_files = python_files.len() as u64;
@@ -127,7 +138,9 @@ async fn main() -> Result<()> {
                     Arc::clone(&total_bytes),
                     Arc::clone(&last_progress),
                     total_files,
-                ).await {
+                )
+                .await
+                {
                     debug!("Error processing file: {}", e);
                 }
             }
@@ -141,10 +154,14 @@ async fn main() -> Result<()> {
 
     let total_duration = start_time.elapsed();
     let reading_duration = total_duration - discovery_duration;
-    info!("Scan complete! Processed {} Python files ({} bytes) in {:.2?}", 
-          total_files, total_bytes.load(Ordering::SeqCst), total_duration);
+    info!(
+        "Scan complete! Processed {} Python files ({} bytes) in {:.2?}",
+        total_files,
+        total_bytes.load(Ordering::SeqCst),
+        total_duration
+    );
     info!("Breakdown:");
     info!("  - File discovery: {:.2?}", discovery_duration);
     info!("  - File reading: {:.2?}", reading_duration);
     Ok(())
-} 
+}

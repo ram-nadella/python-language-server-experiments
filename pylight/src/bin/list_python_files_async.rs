@@ -1,11 +1,10 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_walkdir::{Filtering, WalkDir};
 use clap::Parser as ClapParser;
 use futures_lite::StreamExt;
 use std::path::PathBuf;
 use std::time::Instant;
 use tracing::{debug, info};
-use tracing_subscriber;
 use tracing_subscriber::EnvFilter;
 
 #[derive(ClapParser, Debug, Clone)]
@@ -42,42 +41,42 @@ async fn main() -> Result<()> {
     let mut total_files = 0;
     let base_dir = args.directory.clone();
     let max_depth = args.max_depth;
-    let mut entries = WalkDir::new(&base_dir)
-        .filter(move |entry| {
-            let base_dir = base_dir.clone();
-            async move {
-                let path = entry.path();
-                let depth = path.strip_prefix(&base_dir)
-                    .map(|p| p.components().count())
-                    .unwrap_or(0);
-                
-                // Skip if beyond max depth
-                if max_depth > 0 && depth > max_depth {
-                    return Filtering::Ignore;
-                }
-                
-                // Skip .git directories
-                if path.to_string_lossy().contains(".git") {
-                    return Filtering::IgnoreDir;
-                }
-                
-                // For files, only process Python files
-                if path.is_file() {
-                    if path.extension().map_or(false, |ext| ext == "py") {
-                        return Filtering::Continue;
-                    }
-                    return Filtering::Ignore;
-                }
-                
-                // For directories, always continue
-                Filtering::Continue
+    let mut entries = WalkDir::new(&base_dir).filter(move |entry| {
+        let base_dir = base_dir.clone();
+        async move {
+            let path = entry.path();
+            let depth = path
+                .strip_prefix(&base_dir)
+                .map(|p| p.components().count())
+                .unwrap_or(0);
+
+            // Skip if beyond max depth
+            if max_depth > 0 && depth > max_depth {
+                return Filtering::Ignore;
             }
-        });
+
+            // Skip .git directories
+            if path.to_string_lossy().contains(".git") {
+                return Filtering::IgnoreDir;
+            }
+
+            // For files, only process Python files
+            if path.is_file() {
+                if path.extension().is_some_and(|ext| ext == "py") {
+                    return Filtering::Continue;
+                }
+                return Filtering::Ignore;
+            }
+
+            // For directories, always continue
+            Filtering::Continue
+        }
+    });
 
     while let Some(entry) = entries.next().await {
         if let Ok(entry) = entry {
             let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "py") {
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "py") {
                 debug!("Found Python file: {}", path.display());
                 total_files += 1;
             }
@@ -85,6 +84,9 @@ async fn main() -> Result<()> {
     }
 
     let duration = start_time.elapsed();
-    info!("Scan complete! Found {} Python files in {:.2?}", total_files, duration);
+    info!(
+        "Scan complete! Found {} Python files in {:.2?}",
+        total_files, duration
+    );
     Ok(())
-} 
+}

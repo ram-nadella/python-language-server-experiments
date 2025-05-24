@@ -5,10 +5,8 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use symbol_experiments::files::list_python_files_recursive;
-use tracing::{debug, info, Level};
-use tracing_subscriber;
+use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
-use walkdir::{DirEntry, WalkDir};
 
 #[derive(ClapParser, Debug)]
 #[command(author, version, about, long_about = None)]

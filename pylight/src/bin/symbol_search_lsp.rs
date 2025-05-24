@@ -1,5 +1,4 @@
 use anyhow::Result;
-use bincode;
 use clap::Parser as ClapParser;
 use flate2::read::GzDecoder;
 use std::collections::HashSet;
@@ -13,7 +12,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use url::Url;
 
-use lsp_server::{Connection, Message, Response, ResponseError, ErrorCode};
+use lsp_server::{Connection, ErrorCode, Message, Response, ResponseError};
 use lsp_types::{
     Location, OneOf, Position, Range, ServerCapabilities, SymbolInformation, SymbolKind,
     WorkspaceSymbolParams,
@@ -156,14 +155,41 @@ fn to_lsp_symbol_information(
     };
 
     // Replace deprecated field with tags, but keep deprecated field as None
+    #[allow(deprecated)]
     Some(SymbolInformation {
         name: name_with_score,
         kind: symbol_kind,
         tags: None, // Use tags instead of deprecated field
         location,
         container_name: Some(container_name),
-        deprecated: None, // Explicitly set deprecated to None
+        deprecated: None, // Field is deprecated but still required
     })
+}
+
+/// Handle a workspace symbol request synchronously (for tests)
+#[cfg(test)]
+fn handle_workspace_symbol_request(
+    params: WorkspaceSymbolParams,
+    functions: &HashSet<Symbol>,
+    classes: &HashSet<Symbol>,
+    path_registry: &PathRegistry,
+    algorithm: SearchAlgorithm,
+) -> Vec<SymbolInformation> {
+    // Convert to Arc types for the async function
+    let functions_arc = Arc::new(functions.clone());
+    let classes_arc = Arc::new(classes.clone());
+    let path_registry_arc = Arc::new(path_registry.clone());
+
+    // Use a basic async runtime to call the async function
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(handle_workspace_symbol_request_async(
+            params,
+            functions_arc,
+            classes_arc,
+            path_registry_arc,
+            algorithm,
+        ))
 }
 
 /// Handle a workspace symbol request from the LSP client asynchronously
@@ -244,7 +270,7 @@ fn run_server(
 
     // Create a tokio runtime for handling async tasks
     let rt = Runtime::new()?;
-    
+
     // Wrap our data structures in Arc for sharing between threads
     let functions = Arc::new(functions);
     let classes = Arc::new(classes);
@@ -275,10 +301,10 @@ fn run_server(
 
     // Main message loop
     info!("Entering main message loop");
-    
+
     // Clone connection.sender for use in async tasks
     let sender = connection.sender.clone();
-    
+
     for msg in &connection.receiver {
         match msg {
             Message::Request(req) => {
@@ -291,26 +317,23 @@ fn run_server(
                 match req.method.as_str() {
                     // Workspace symbol request - this is the main functionality we're providing
                     "workspace/symbol" => {
-                        info!(
-                            "Received workspace/symbol request with id: {:?}",
-                            req.id
-                        );
-                        
+                        info!("Received workspace/symbol request with id: {:?}", req.id);
+
                         // Clone the necessary data for the async task
                         let functions_clone = functions.clone();
                         let classes_clone = classes.clone();
                         let path_registry_clone = path_registry.clone();
                         let sender_clone = sender.clone();
                         let req_id = req.id.clone();
-                        let alg = algorithm.clone();
-                        
+                        let alg = algorithm;
+
                         match serde_json::from_value::<WorkspaceSymbolParams>(req.params) {
                             Ok(params) => {
                                 info!(
                                     "Processing workspace/symbol request with query: '{}'",
                                     params.query
                                 );
-                                
+
                                 // Spawn an async task to handle the request
                                 rt.spawn(async move {
                                     let symbols = handle_workspace_symbol_request_async(
@@ -319,11 +342,12 @@ fn run_server(
                                         classes_clone,
                                         path_registry_clone,
                                         alg,
-                                    ).await;
-                                    
+                                    )
+                                    .await;
+
                                     let symbol_count = symbols.len();
                                     info!("Async search completed with {} results", symbol_count);
-                                    
+
                                     // Create and send the response
                                     match serde_json::to_value(symbols) {
                                         Ok(symbols_value) => {
@@ -332,11 +356,13 @@ fn run_server(
                                                 result: Some(symbols_value),
                                                 error: None,
                                             };
-                                            if let Err(e) = sender_clone.send(Message::Response(resp)) {
+                                            if let Err(e) =
+                                                sender_clone.send(Message::Response(resp))
+                                            {
                                                 tracing::error!("Failed to send response: {}", e);
                                             }
                                             info!("Sent response with {} symbols", symbol_count);
-                                        },
+                                        }
                                         Err(e) => {
                                             tracing::error!("Failed to serialize symbols: {}", e);
                                             let resp = Response {
@@ -352,9 +378,9 @@ fn run_server(
                                         }
                                     }
                                 });
-                                
+
                                 info!("Spawned async task for workspace/symbol request");
-                            },
+                            }
                             Err(e) => {
                                 tracing::error!("Failed to parse workspace/symbol params: {}", e);
                                 let resp = Response {
@@ -369,7 +395,7 @@ fn run_server(
                                 connection.sender.send(Message::Response(resp))?;
                             }
                         }
-                    },
+                    }
 
                     // For any other requests we don't handle, respond with null
                     _ => {
@@ -382,10 +408,10 @@ fn run_server(
                         connection.sender.send(Message::Response(resp))?;
                     }
                 }
-            },
+            }
             Message::Response(resp) => {
                 info!("Received response: {:?}", resp);
-            },
+            }
             Message::Notification(not) => {
                 info!("Received notification: {}", not.method);
             }
@@ -402,8 +428,7 @@ fn run_server(
 fn main() -> Result<()> {
     // Initialize tracing to write to stderr
     // Default to INFO level if RUST_LOG environment variable is not set.
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::fmt()
         .with_writer(stderr) // Write logs to stderr

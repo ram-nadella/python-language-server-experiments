@@ -1,12 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser as ClapParser;
+use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
 use tracing::{debug, info};
-use tracing_subscriber;
 use tracing_subscriber::EnvFilter;
 use walkdir::WalkDir;
-use std::fs;
 
 #[derive(ClapParser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -35,7 +34,7 @@ fn main() -> Result<()> {
     }
 
     info!("Starting scan of directory: {}", args.directory.display());
-    
+
     // First, collect all Python files using synchronous walkdir
     let discovery_start = Instant::now();
     let mut python_files = Vec::new();
@@ -52,14 +51,18 @@ fn main() -> Result<()> {
             debug!("Processed {} entries so far...", entries_processed);
         }
 
-        if entry.path().extension().map_or(false, |ext| ext == "py") {
+        if entry.path().extension().is_some_and(|ext| ext == "py") {
             python_files.push(entry.path().to_path_buf());
         }
     }
 
     let discovery_duration = discovery_start.elapsed();
-    info!("File discovery phase: Found {} Python files out of {} total entries in {:.2?}", 
-          python_files.len(), entries_processed, discovery_duration);
+    info!(
+        "File discovery phase: Found {} Python files out of {} total entries in {:.2?}",
+        python_files.len(),
+        entries_processed,
+        discovery_duration
+    );
 
     // Now process the files
     let reading_start = Instant::now();
@@ -80,10 +83,12 @@ fn main() -> Result<()> {
     let reading_duration = reading_start.elapsed();
     let total_duration = start_time.elapsed();
 
-    info!("Scan complete! Found {} Python files ({} bytes) in {:.2?}", 
-          total_files, total_bytes, total_duration);
+    info!(
+        "Scan complete! Found {} Python files ({} bytes) in {:.2?}",
+        total_files, total_bytes, total_duration
+    );
     info!("Breakdown:");
     info!("  - File discovery: {:.2?}", discovery_duration);
     info!("  - File reading: {:.2?}", reading_duration);
     Ok(())
-} 
+}
