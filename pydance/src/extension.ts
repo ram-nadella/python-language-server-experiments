@@ -12,7 +12,6 @@ let client: LanguageClient;
 export function activate(context: vscode.ExtensionContext) {
     // Create output channel
     const outputChannel = vscode.window.createOutputChannel("Pydance");
-    outputChannel.show();
     outputChannel.appendLine("Pydance extension is activating...");
 
     const serverPath = context.asAbsolutePath(
