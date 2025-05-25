@@ -1,12 +1,14 @@
 use anyhow::Result;
 use clap::Parser as ClapParser;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::stderr;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
-use tracing::info;
+use tokio::sync::mpsc;
+use tokio::time::timeout;
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 use url::Url;
 
@@ -16,6 +18,9 @@ use lsp_types::{
     WorkspaceSymbolParams,
 };
 use serde_json::{self, Value};
+
+// File watching imports
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use symbol_experiments::files::list_python_files;
 use symbol_experiments::python::parse_python_files_parallel;
@@ -55,6 +60,153 @@ impl ServerState {
     fn is_ready(&self) -> bool {
         self.indexing_complete && self.symbol_data.is_some()
     }
+
+    /// Apply incremental updates to the symbol data
+    /// This method expects the new symbols to already be parsed
+    fn apply_parsed_changes(&mut self, parsed_changes: ParsedFileChanges) -> Result<()> {
+        let operation_start = Instant::now();
+
+        if let Some(ref mut data) = self.symbol_data {
+            info!(
+                "📝 Starting symbol updates ({} functions, {} classes currently)",
+                data.functions.len(),
+                data.classes.len()
+            );
+
+            // Remove symbols for deleted files
+            let delete_start = Instant::now();
+            for deleted_path in &parsed_changes.deleted_files {
+                Self::remove_symbols_for_file_static(
+                    deleted_path,
+                    &mut data.functions,
+                    &mut data.classes,
+                    &data.path_registry,
+                );
+            }
+            let delete_time = delete_start.elapsed();
+
+            // Remove old symbols for modified/created files (use a separate list to avoid borrow issues)
+            let remove_start = Instant::now();
+            let files_to_remove: Vec<PathBuf> =
+                parsed_changes.new_symbols.path_registry.paths.clone();
+            for path in &files_to_remove {
+                Self::remove_symbols_for_file_static(
+                    path,
+                    &mut data.functions,
+                    &mut data.classes,
+                    &data.path_registry,
+                );
+            }
+            let remove_time = remove_start.elapsed();
+
+            // Create a mapping from temporary path registry indexes to main path registry indexes
+            let mapping_start = Instant::now();
+            let mut index_mapping: HashMap<usize, usize> = HashMap::new();
+            for (temp_index, path) in parsed_changes
+                .new_symbols
+                .path_registry
+                .paths
+                .iter()
+                .enumerate()
+            {
+                let main_index = data.path_registry.register_path(path.clone());
+                index_mapping.insert(temp_index, main_index);
+            }
+            let mapping_time = mapping_start.elapsed();
+
+            // Add new symbols with corrected path indexes
+            let insert_start = Instant::now();
+            let mut functions_added = 0;
+            let mut classes_added = 0;
+
+            for mut function in parsed_changes.new_symbols.functions {
+                // Fix the file_path_index to use the main path registry
+                if let Some(&new_index) = index_mapping.get(&function.context.file_path_index) {
+                    function.context.file_path_index = new_index;
+                    data.functions.insert(function);
+                    functions_added += 1;
+                } else {
+                    error!(
+                        "Failed to map file path index for function: {}",
+                        function.name
+                    );
+                }
+            }
+            for mut class in parsed_changes.new_symbols.classes {
+                // Fix the file_path_index to use the main path registry
+                if let Some(&new_index) = index_mapping.get(&class.context.file_path_index) {
+                    class.context.file_path_index = new_index;
+                    data.classes.insert(class);
+                    classes_added += 1;
+                } else {
+                    error!("Failed to map file path index for class: {}", class.name);
+                }
+            }
+            let insert_time = insert_start.elapsed();
+
+            let total_time = operation_start.elapsed();
+            info!("📝 Symbol update breakdown: delete={}ms, remove={}ms, mapping={}ms, insert={}ms, total={}ms", 
+                delete_time.as_millis(), remove_time.as_millis(), mapping_time.as_millis(),
+                insert_time.as_millis(), total_time.as_millis());
+            info!(
+                "📝 Added {} functions, {} classes. Total now: {} functions, {} classes",
+                functions_added,
+                classes_added,
+                data.functions.len(),
+                data.classes.len()
+            );
+        }
+        Ok(())
+    }
+
+    /// Remove all symbols that belong to a specific file
+    fn remove_symbols_for_file_static(
+        file_path: &PathBuf,
+        functions: &mut HashSet<Symbol>,
+        classes: &mut HashSet<Symbol>,
+        path_registry: &PathRegistry,
+    ) {
+        // We need to find symbols that belong to this file
+        // This is a bit tricky because we need to compare file paths
+        functions.retain(|symbol| {
+            !Self::symbol_belongs_to_file_static(symbol, file_path, path_registry)
+        });
+        classes.retain(|symbol| {
+            !Self::symbol_belongs_to_file_static(symbol, file_path, path_registry)
+        });
+    }
+
+    /// Check if a symbol belongs to a specific file
+    fn symbol_belongs_to_file_static(
+        symbol: &Symbol,
+        file_path: &PathBuf,
+        path_registry: &PathRegistry,
+    ) -> bool {
+        let symbol_path = path_registry.get_path(symbol.context.file_path_index);
+        symbol_path == file_path
+    }
+}
+
+/// File change event types for our file watcher
+#[derive(Debug, Clone)]
+enum FileChangeType {
+    Created,
+    Modified,
+    Deleted,
+}
+
+/// Represents a file change event with path and change type
+#[derive(Debug, Clone)]
+struct FileChange {
+    path: PathBuf,
+    change_type: FileChangeType,
+}
+
+/// Represents the results of parsing file changes
+#[derive(Debug)]
+struct ParsedFileChanges {
+    deleted_files: Vec<PathBuf>,
+    new_symbols: SymbolData,
 }
 
 #[derive(ClapParser, Debug, Clone)]
@@ -71,6 +223,309 @@ struct Args {
     /// Listen on this TCP port instead of using stdio
     #[arg(long)]
     port: Option<u16>,
+}
+
+/// Process file changes in parallel (much faster than processing one by one)
+async fn process_file_changes_parallel(
+    changes: &[FileChange],
+    base_dir: &PathBuf,
+) -> Result<ParsedFileChanges> {
+    let mut deleted_files = Vec::new();
+    let mut files_to_parse = Vec::new();
+
+    // Separate deleted files from files that need parsing
+    for change in changes {
+        match change.change_type {
+            FileChangeType::Deleted => {
+                deleted_files.push(change.path.clone());
+            }
+            FileChangeType::Created | FileChangeType::Modified => {
+                if change.path.extension().and_then(|s| s.to_str()) == Some("py") {
+                    files_to_parse.push(change.path.clone());
+                }
+            }
+        }
+    }
+
+    info!(
+        "Processing {} deleted files and {} files to parse",
+        deleted_files.len(),
+        files_to_parse.len()
+    );
+
+    // Parse all modified/created files in parallel (this is the key performance improvement)
+    let new_symbols = if !files_to_parse.is_empty() {
+        let stats = SymbolStats::new();
+
+        // Use the existing parallel parsing function - this is much faster than processing files one by one
+        parse_python_files_parallel(&files_to_parse, base_dir, &stats)?;
+
+        let functions = stats.functions.lock().unwrap().clone();
+        let classes = stats.classes.lock().unwrap().clone();
+        let path_registry = stats.path_registry.lock().unwrap().clone();
+
+        SymbolData {
+            functions,
+            classes,
+            path_registry,
+        }
+    } else {
+        // No files to parse, create empty symbol data
+        SymbolData {
+            functions: HashSet::new(),
+            classes: HashSet::new(),
+            path_registry: PathRegistry::new(),
+        }
+    };
+
+    Ok(ParsedFileChanges {
+        deleted_files,
+        new_symbols,
+    })
+}
+
+/// Convert notify events to our FileChange events
+fn notify_event_to_file_change(event: Event) -> Vec<FileChange> {
+    let mut changes = Vec::new();
+
+    match event.kind {
+        EventKind::Create(_) => {
+            for path in event.paths {
+                if path.extension().and_then(|s| s.to_str()) == Some("py") {
+                    changes.push(FileChange {
+                        path,
+                        change_type: FileChangeType::Created,
+                    });
+                }
+            }
+        }
+        EventKind::Modify(_) => {
+            for path in event.paths {
+                if path.extension().and_then(|s| s.to_str()) == Some("py") {
+                    changes.push(FileChange {
+                        path,
+                        change_type: FileChangeType::Modified,
+                    });
+                }
+            }
+        }
+        EventKind::Remove(_) => {
+            for path in event.paths {
+                if path.extension().and_then(|s| s.to_str()) == Some("py") {
+                    changes.push(FileChange {
+                        path,
+                        change_type: FileChangeType::Deleted,
+                    });
+                }
+            }
+        }
+        _ => {
+            // Ignore other event types like access events
+        }
+    }
+
+    changes
+}
+
+/// File watcher task that monitors for changes and sends them to a channel
+async fn file_watcher_task(
+    directory: PathBuf,
+    follow_links: bool,
+    change_sender: mpsc::UnboundedSender<FileChange>,
+) -> Result<()> {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    // Create the file watcher
+    let mut watcher = RecommendedWatcher::new(
+        move |res: Result<Event, notify::Error>| match res {
+            Ok(event) => {
+                let changes = notify_event_to_file_change(event);
+                for change in changes {
+                    if let Err(e) = tx.send(change) {
+                        error!("Failed to send file change event: {}", e);
+                    }
+                }
+            }
+            Err(e) => error!("File watcher error: {}", e),
+        },
+        Config::default(),
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to create file watcher: {}", e))?;
+
+    // Start watching the directory
+    let mode = if follow_links {
+        RecursiveMode::Recursive
+    } else {
+        RecursiveMode::Recursive // We still want recursive, but notify will handle symlinks based on the config
+    };
+
+    watcher
+        .watch(&directory, mode)
+        .map_err(|e| anyhow::anyhow!("Failed to start watching directory: {}", e))?;
+
+    info!(
+        "File watcher started for directory: {}",
+        directory.display()
+    );
+
+    // Forward events from the watcher to our channel
+    // Keep the watcher alive by storing it in a variable
+    let _watcher_handle = watcher;
+    while let Some(change) = rx.recv().await {
+        info!(
+            "File watcher received change: {:?} - {:?}",
+            change.change_type, change.path
+        );
+        if let Err(e) = change_sender.send(change) {
+            error!("Failed to send change to processor: {}", e);
+            break;
+        }
+    }
+
+    info!("File watcher task exiting");
+    Ok(())
+}
+
+/// Debounced change processor that accumulates changes and processes them in batches
+async fn debounced_change_processor(
+    mut change_receiver: mpsc::UnboundedReceiver<FileChange>,
+    server_state: Arc<RwLock<ServerState>>,
+    base_dir: PathBuf,
+    debounce_duration: Duration,
+) -> Result<()> {
+    let mut pending_changes: HashMap<PathBuf, FileChange> = HashMap::new();
+    let mut last_change_time = None;
+
+    loop {
+        // Wait for changes or timeout
+        let change_result = if pending_changes.is_empty() {
+            // No pending changes, wait indefinitely for the first change
+            change_receiver.recv().await
+        } else {
+            // We have pending changes, wait with timeout
+            let remaining_time = last_change_time
+                .map(|t: Instant| {
+                    let elapsed = t.elapsed();
+                    if elapsed >= debounce_duration {
+                        Duration::from_millis(0) // Process immediately
+                    } else {
+                        debounce_duration - elapsed
+                    }
+                })
+                .unwrap_or(Duration::from_millis(0));
+
+            if remaining_time.is_zero() {
+                None // Process pending changes
+            } else {
+                match timeout(remaining_time, change_receiver.recv()).await {
+                    Ok(change) => change,
+                    Err(_) => None, // Timeout occurred
+                }
+            }
+        };
+
+        match change_result {
+            Some(change) => {
+                // New change received
+                info!(
+                    "File change detected: {:?} - {:?}",
+                    change.change_type, change.path
+                );
+
+                // Update pending changes (latest change for each path wins)
+                pending_changes.insert(change.path.clone(), change);
+                last_change_time = Some(Instant::now());
+            }
+            None => {
+                // Timeout or channel closed - process pending changes
+                if !pending_changes.is_empty() {
+                    let changes: Vec<FileChange> = pending_changes.values().cloned().collect();
+                    pending_changes.clear();
+                    last_change_time = None;
+
+                    info!("Processing {} debounced file changes", changes.len());
+                    let process_start = Instant::now();
+
+                    // Parse the files in parallel OUTSIDE the lock (this is the key improvement)
+                    let parse_start = Instant::now();
+                    match process_file_changes_parallel(&changes, &base_dir).await {
+                        Ok(parsed_changes) => {
+                            let parse_time = parse_start.elapsed();
+                            info!(
+                                "Parsed {} files in {}ms",
+                                changes.len(),
+                                parse_time.as_millis()
+                            );
+
+                            // Now quickly apply the parsed changes with minimal lock time
+                            let apply_start = Instant::now();
+                            info!("📝 Attempting to acquire write lock for applying changes");
+                            let write_lock_start = Instant::now();
+
+                            match server_state.write() {
+                                Ok(mut state) => {
+                                    let write_lock_time = write_lock_start.elapsed();
+                                    info!(
+                                        "📝 Acquired write lock in {}ms",
+                                        write_lock_time.as_millis()
+                                    );
+
+                                    // Use panic protection to ensure lock is always released
+                                    let apply_result =
+                                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                            || state.apply_parsed_changes(parsed_changes),
+                                        ));
+
+                                    match apply_result {
+                                        Ok(Ok(())) => {
+                                            let apply_time = apply_start.elapsed();
+                                            info!("✅ Applied {} file changes in {}ms (parse: {}ms, write_lock_wait: {}ms, apply: {}ms)", 
+                                                changes.len(),
+                                                process_start.elapsed().as_millis(),
+                                                parse_time.as_millis(),
+                                                write_lock_time.as_millis(),
+                                                apply_time.as_millis()
+                                            );
+                                        }
+                                        Ok(Err(e)) => {
+                                            error!("❌ Failed to apply parsed changes: {}", e);
+                                        }
+                                        Err(panic_info) => {
+                                            error!(
+                                                "❌ PANIC during apply_parsed_changes: {:?}",
+                                                panic_info
+                                            );
+                                            error!("❌ This would have poisoned the RwLock!");
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "❌ Failed to acquire write lock for applying changes: {}",
+                                        e
+                                    );
+                                    // Check if the lock is poisoned
+                                    if server_state.is_poisoned() {
+                                        error!("❌ RwLock is POISONED! A previous thread panicked while holding the lock.");
+                                        error!("❌ This explains why read locks are hanging!");
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to parse file changes: {}", e);
+                        }
+                    }
+                } else {
+                    // Channel closed and no pending changes
+                    break;
+                }
+            }
+        }
+    }
+
+    info!("Debounced change processor exiting");
+    Ok(())
 }
 
 /// Convert a Symbol to an LSP SymbolInformation
@@ -159,57 +614,112 @@ async fn handle_workspace_symbol_request_async(
         return Vec::new();
     }
 
-    // Check if symbols are loaded
-    let symbol_data = {
-        let state = server_state.read().unwrap();
-        if !state.is_ready() {
-            info!("Symbols not ready yet, returning empty result");
-            return Vec::new();
+    // Perform the search directly with a read lock to avoid expensive cloning
+    info!("🔍 Attempting to acquire read lock for symbol search");
+    let lock_start = Instant::now();
+
+    let search_result = match server_state.read() {
+        Ok(state) => {
+            let lock_time = lock_start.elapsed();
+            info!("🔍 Acquired read lock in {}ms", lock_time.as_millis());
+
+            // Warn if lock acquisition was slow
+            if lock_time.as_millis() > 100 {
+                error!(
+                    "⚠️ Read lock acquisition was slow ({}ms) - possible write lock contention!",
+                    lock_time.as_millis()
+                );
+            }
+
+            if !state.is_ready() {
+                info!("🔍 Symbols not ready yet, returning empty result (indexing_complete: {}, symbol_data: {})", 
+                    state.indexing_complete, state.symbol_data.is_some());
+                return Vec::new();
+            }
+
+            match state.symbol_data.as_ref() {
+                Some(data) => {
+                    info!(
+                        "🔍 Starting search with symbol data ({} functions, {} classes)",
+                        data.functions.len(),
+                        data.classes.len()
+                    );
+
+                    // Perform the search while holding the lock (this is fast)
+                    let search_start = Instant::now();
+                    let (results, metrics) = search_symbols(
+                        &params.query,
+                        &data.functions,
+                        &data.classes,
+                        &data.path_registry,
+                        false,
+                    );
+                    let search_time = search_start.elapsed();
+
+                    let result_count = results.len();
+                    info!(
+                        "🔍 Search completed: found {} results in {}ms",
+                        result_count,
+                        search_time.as_millis()
+                    );
+                    info!(
+                        "🔍 Search metrics: matcher_init={}ms, search={}ms, sort={}ms, total={}ms",
+                        metrics.matcher_init_time_ms,
+                        metrics.search_time_ms,
+                        metrics.sort_time_ms,
+                        metrics.total_time_ms
+                    );
+
+                    // Clone only the path registry (much smaller) and the minimal results
+                    let path_registry = data.path_registry.clone();
+                    Some((results, path_registry))
+                }
+                None => {
+                    info!("🔍 Symbol data is None despite is_ready() returning true");
+                    None
+                }
+            }
         }
-        state.symbol_data.clone().unwrap()
+        Err(e) => {
+            error!("❌ Failed to acquire read lock for symbol search: {}", e);
+
+            // Check for lock poisoning
+            if server_state.is_poisoned() {
+                error!("❌ RwLock is POISONED! This explains the read lock failure.");
+                error!("❌ A previous thread must have panicked while holding a write lock.");
+            }
+
+            None
+        }
     };
 
-    // Perform the search
-    let search_start = Instant::now();
-    let (results, metrics) = search_symbols(
-        &params.query,
-        &symbol_data.functions,
-        &symbol_data.classes,
-        &symbol_data.path_registry,
-        false,
-    );
-    let search_time = search_start.elapsed();
-
-    let result_count = results.len();
-    info!(
-        "Search completed: found {} results in {}ms",
-        result_count,
-        search_time.as_millis()
-    );
-    info!(
-        "Search metrics: matcher_init={}ms, search={}ms, sort={}ms, total={}ms",
-        metrics.matcher_init_time_ms,
-        metrics.search_time_ms,
-        metrics.sort_time_ms,
-        metrics.total_time_ms
-    );
+    // Process results outside the lock
+    let (results, path_registry) = match search_result {
+        Some(data) => data,
+        None => return Vec::new(),
+    };
 
     // truncate results to 100 symbols
     let max_results = 100;
+    let result_count = results.len();
     if result_count > max_results {
-        info!("Truncating results to {} symbols", max_results);
+        info!("🔍 Truncating results to {} symbols", max_results);
     }
 
     // Convert the results to LSP format, filtering out None values from conversion errors
+    let convert_start = Instant::now();
     let lsp_symbols: Vec<SymbolInformation> = results
         .iter()
-        .filter_map(|(symbol, score)| {
-            to_lsp_symbol_information(symbol, &symbol_data.path_registry, *score)
-        }) // Use filter_map
+        .filter_map(|(symbol, score)| to_lsp_symbol_information(symbol, &path_registry, *score)) // Use filter_map
         .take(max_results)
         .collect();
 
-    info!("Converted {} symbols to LSP format", lsp_symbols.len());
+    let convert_time = convert_start.elapsed();
+    info!(
+        "🔍 Converted {} symbols to LSP format in {}ms",
+        lsp_symbols.len(),
+        convert_time.as_millis()
+    );
     lsp_symbols
 }
 
@@ -249,11 +759,20 @@ fn run_server(server_state: Arc<RwLock<ServerState>>, port: Option<u16>) -> Resu
     // Clone connection.sender for use in async tasks
     let sender = connection.sender.clone();
 
+    let mut message_count = 0;
     for msg in &connection.receiver {
+        message_count += 1;
+        info!("📨 LSP: Received message #{} from client", message_count);
+
         match msg {
             Message::Request(req) => {
+                info!(
+                    "📨 LSP: Message #{} is a REQUEST: method='{}', id={:?}",
+                    message_count, req.method, req.id
+                );
+
                 if connection.handle_shutdown(&req)? {
-                    info!("Shutdown request received, exiting...");
+                    info!("📨 LSP: Shutdown request received, exiting...");
                     return Ok(());
                 }
 
@@ -261,7 +780,11 @@ fn run_server(server_state: Arc<RwLock<ServerState>>, port: Option<u16>) -> Resu
                 match req.method.as_str() {
                     // Workspace symbol request - this is the main functionality we're providing
                     "workspace/symbol" => {
-                        info!("Received workspace/symbol request with id: {:?}", req.id);
+                        info!(
+                            "🔍 LSP: Received workspace/symbol request with id: {:?}",
+                            req.id
+                        );
+                        let request_start = Instant::now();
 
                         // Clone the necessary data for the async task
                         let server_state_clone = server_state.clone();
@@ -271,53 +794,90 @@ fn run_server(server_state: Arc<RwLock<ServerState>>, port: Option<u16>) -> Resu
                         match serde_json::from_value::<WorkspaceSymbolParams>(req.params) {
                             Ok(params) => {
                                 info!(
-                                    "Processing workspace/symbol request with query: '{}'",
-                                    params.query
+                                    "🔍 LSP: Processing workspace/symbol request id={:?} query='{}'",
+                                    req_id, params.query
                                 );
 
                                 // Spawn an async task to handle the request
                                 rt.spawn(async move {
-                                    let symbols = handle_workspace_symbol_request_async(
-                                        params,
-                                        server_state_clone,
-                                    )
-                                    .await;
+                                    let task_start = Instant::now();
+                                    info!("🔍 LSP: Starting async task for request id={:?}", req_id);
 
-                                    let symbol_count = symbols.len();
-                                    info!("Async search completed with {} results", symbol_count);
-
-                                    // Create and send the response
-                                    match serde_json::to_value(symbols) {
-                                        Ok(symbols_value) => {
-                                            let resp = Response {
-                                                id: req_id,
-                                                result: Some(symbols_value),
-                                                error: None,
-                                            };
-                                            if let Err(e) =
-                                                sender_clone.send(Message::Response(resp))
-                                            {
-                                                tracing::error!("Failed to send response: {}", e);
-                                            }
-                                            info!("Sent response with {} symbols", symbol_count);
-                                        }
-                                        Err(e) => {
-                                            tracing::error!("Failed to serialize symbols: {}", e);
+                                    // Add timeout protection (30 seconds should be plenty)
+                                    let symbols = match timeout(
+                                        Duration::from_secs(30),
+                                        handle_workspace_symbol_request_async(params, server_state_clone)
+                                    ).await {
+                                        Ok(symbols) => symbols,
+                                        Err(_) => {
+                                            error!("❌ LSP: Request id={:?} timed out after 30 seconds", req_id);
                                             let resp = Response {
                                                 id: req_id,
                                                 result: None,
                                                 error: Some(ResponseError {
-                                                    code: ErrorCode::InternalError as i32,
-                                                    message: format!("Error: {}", e),
+                                                    code: ErrorCode::RequestFailed as i32,
+                                                    message: "Request timed out".to_string(),
                                                     data: None,
                                                 }),
                                             };
-                                            let _ = sender_clone.send(Message::Response(resp));
+                                            if let Err(e) = sender_clone.send(Message::Response(resp)) {
+                                                error!("❌ LSP: Failed to send timeout response: {}", e);
+                                            }
+                                            return;
+                                        }
+                                    };
+
+                                    let symbol_count = symbols.len();
+                                    let task_duration = task_start.elapsed();
+                                    info!("🔍 LSP: Async search completed for id={:?} with {} results in {}ms", 
+                                        req_id, symbol_count, task_duration.as_millis());
+
+                                    // Create and send the response
+                                    let serialize_start = Instant::now();
+                                    match serde_json::to_value(symbols) {
+                                        Ok(symbols_value) => {
+                                            let serialize_time = serialize_start.elapsed();
+                                            info!("🔍 LSP: Serialized {} symbols in {}ms for id={:?}", 
+                                                symbol_count, serialize_time.as_millis(), req_id);
+
+                                            let resp = Response {
+                                                id: req_id.clone(),
+                                                result: Some(symbols_value),
+                                                error: None,
+                                            };
+
+                                            let send_start = Instant::now();
+                                            match sender_clone.send(Message::Response(resp)) {
+                                                Ok(_) => {
+                                                    let send_time = send_start.elapsed();
+                                                    let total_time = request_start.elapsed();
+                                                    info!("✅ LSP: Successfully sent response for id={:?} with {} symbols (send: {}ms, total: {}ms)", 
+                                                        req_id, symbol_count, send_time.as_millis(), total_time.as_millis());
+                                                }
+                                                Err(e) => {
+                                                    error!("❌ LSP: Failed to send response for id={:?}: {}", req_id, e);
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!("❌ LSP: Failed to serialize symbols for id={:?}: {}", req_id, e);
+                                            let resp = Response {
+                                                id: req_id.clone(),
+                                                result: None,
+                                                error: Some(ResponseError {
+                                                    code: ErrorCode::InternalError as i32,
+                                                    message: format!("Serialization error: {}", e),
+                                                    data: None,
+                                                }),
+                                            };
+                                            if let Err(e2) = sender_clone.send(Message::Response(resp)) {
+                                                error!("❌ LSP: Failed to send error response for id={:?}: {}", req_id, e2);
+                                            }
                                         }
                                     }
                                 });
 
-                                info!("Spawned async task for workspace/symbol request");
+                                info!("🔍 LSP: Spawned async task for workspace/symbol request id={:?}", req.id);
                             }
                             Err(e) => {
                                 tracing::error!("Failed to parse workspace/symbol params: {}", e);
@@ -337,21 +897,48 @@ fn run_server(server_state: Arc<RwLock<ServerState>>, port: Option<u16>) -> Resu
 
                     // For any other requests we don't handle, respond with null
                     _ => {
-                        info!("Received unsupported request: {}", req.method);
+                        info!("📨 LSP: Received unsupported request: {}", req.method);
                         let resp = Response {
-                            id: req.id,
+                            id: req.id.clone(),
                             result: Some(Value::Null),
                             error: None,
                         };
+                        info!(
+                            "📤 LSP: Sending null response for unsupported request id={:?}",
+                            req.id
+                        );
                         connection.sender.send(Message::Response(resp))?;
+                        info!("📤 LSP: Null response sent successfully");
                     }
                 }
             }
             Message::Response(resp) => {
-                info!("Received response: {:?}", resp);
+                info!(
+                    "📨 LSP: Message #{} is a RESPONSE: id={:?}",
+                    message_count, resp.id
+                );
             }
             Message::Notification(not) => {
-                info!("Received notification: {}", not.method);
+                info!(
+                    "📨 LSP: Message #{} is a NOTIFICATION: method='{}'",
+                    message_count, not.method
+                );
+
+                // Log important notifications
+                match not.method.as_str() {
+                    "$/cancelRequest" => {
+                        info!("📨 LSP: Client cancelled a request: {:?}", not.params);
+                    }
+                    "textDocument/didOpen"
+                    | "textDocument/didChange"
+                    | "textDocument/didSave"
+                    | "textDocument/didClose" => {
+                        info!("📨 LSP: Document change notification: {}", not.method);
+                    }
+                    _ => {
+                        info!("📨 LSP: Other notification: {}", not.method);
+                    }
+                }
             }
         }
     }
@@ -420,13 +1007,15 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    info!("Starting LSP server with args: {:?}", args);
+    info!("🚀 Starting LSP server with args: {:?}", args);
 
     // Create shared server state
     let server_state = Arc::new(RwLock::new(ServerState::new()));
 
-    // Create a tokio runtime for the bootstrap process
+    // Create a tokio runtime for the bootstrap process with monitoring
+    info!("🔧 Creating tokio runtime");
     let rt = Runtime::new()?;
+    info!("✅ Tokio runtime created successfully");
 
     // Start the bootstrap process in the background
     let bootstrap_state = server_state.clone();
@@ -436,6 +1025,56 @@ fn main() -> Result<()> {
             tracing::error!("Bootstrap process failed: {}", e);
         }
     });
+
+    // Start file watching (always enabled)
+    let (change_sender, change_receiver) = mpsc::unbounded_channel();
+    let debounce_duration = Duration::from_millis(500); // Fixed 500ms debounce
+
+    // Start the file watcher task with restart logic
+    let watcher_directory = args.directory.clone();
+    let watcher_follow_links = args.follow_links;
+    let watcher_change_sender = change_sender.clone();
+    rt.spawn(async move {
+        loop {
+            match file_watcher_task(
+                watcher_directory.clone(),
+                watcher_follow_links,
+                watcher_change_sender.clone(),
+            )
+            .await
+            {
+                Ok(_) => {
+                    info!("File watcher task completed normally");
+                    break;
+                }
+                Err(e) => {
+                    error!(
+                        "File watcher task failed: {}, restarting in 5 seconds...",
+                        e
+                    );
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
+            }
+        }
+    });
+
+    // Start the debounced change processor (no restart since it shouldn't fail)
+    let processor_state = server_state.clone();
+    let processor_base_dir = args.directory.clone();
+    rt.spawn(async move {
+        if let Err(e) = debounced_change_processor(
+            change_receiver,
+            processor_state,
+            processor_base_dir,
+            debounce_duration,
+        )
+        .await
+        {
+            error!("Debounced change processor failed: {}", e);
+        }
+    });
+
+    info!("File watching enabled with 500ms debounce");
 
     // Start the LSP server immediately (non-blocking)
     run_server(server_state, args.port)?;
