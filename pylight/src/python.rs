@@ -964,13 +964,8 @@ def function_at_line_25():
         );
 
         // Search for ClassAtLine11
-        let (results, _metrics) = search_symbols(
-            "ClassAtLine11",
-            &functions,
-            &classes,
-            &path_registry,
-            false,
-        );
+        let (results, _metrics) =
+            search_symbols("ClassAtLine11", &functions, &classes, &path_registry, false);
         assert_eq!(
             results.len(),
             1,
@@ -1158,13 +1153,8 @@ class Class2_line9:
         for &(name, expected_line, file_idx) in
             expected_functions.iter().chain(expected_classes.iter())
         {
-            let (results, _metrics) = search_symbols(
-                name,
-                &functions,
-                &classes,
-                &path_registry,
-                false,
-            );
+            let (results, _metrics) =
+                search_symbols(name, &functions, &classes, &path_registry, false);
             // Results should be unique - make sure we find exactly one match
             assert_eq!(
                 results.len(),
