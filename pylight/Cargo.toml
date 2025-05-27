@@ -29,6 +29,7 @@ serde_json = "1.0.140"
 url = "2.5.4"
 radix_trie = "0.2.1"
 notify = "8.0"
+arc-swap = "1.7"
 
 [dev-dependencies]
 tempfile = "3.5.0"
