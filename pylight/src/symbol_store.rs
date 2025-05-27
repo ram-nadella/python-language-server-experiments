@@ -626,6 +626,7 @@ mod tests {
     use super::*;
     use crate::symbols::{PathRegistry, Symbol, SymbolContext, SymbolType};
     use std::collections::HashSet;
+    use std::time::Duration;
 
     fn create_test_symbol(
         name: &str,
@@ -798,20 +799,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_symbol_store_concurrent_access() {
+    async fn test_symbol_store_concurrent_reads() {
         let (store, _writer_handle) = SymbolStore::new_with_writer(PathBuf::new());
 
         // Load some test data
         let test_data = create_test_symbol_data();
         store.batch_update(test_data).await.unwrap();
 
-        // Test concurrent reads
+        // Test concurrent reads - focused on correctness, not stress testing
         let mut handles = vec![];
-        for i in 0..10 {
+        for i in 0..5 {
             let store_clone = store.clone();
             let handle = tokio::spawn(async move {
                 let results = store_clone.search("test");
                 assert!(!results.is_empty(), "Thread {} got empty results", i);
+
+                // Verify specific expected results
+                let function_results = store_clone.search("function");
+                assert_eq!(function_results.len(), 2);
+
                 results.len()
             });
             handles.push(handle);
@@ -837,6 +843,66 @@ mod tests {
 
         let lsp_results = store.search_to_lsp("", 10);
         assert!(lsp_results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_symbol_store_concurrent_reads_with_update() {
+        let (store, _writer_handle) = SymbolStore::new_with_writer(PathBuf::new());
+
+        // Load initial data
+        let test_data = create_test_symbol_data();
+        store.batch_update(test_data).await.unwrap();
+
+        // Start concurrent readers
+        let mut read_handles = vec![];
+        for i in 0..3 {
+            let store_clone = store.clone();
+            let handle = tokio::spawn(async move {
+                for _ in 0..5 {
+                    let results = store_clone.search("test");
+                    assert!(!results.is_empty(), "Reader {} got empty results", i);
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            });
+            read_handles.push(handle);
+        }
+
+        // Perform an update while reads are happening
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        let mut new_path_registry = PathRegistry::new();
+        let update_file_path = std::env::current_dir().unwrap().join("concurrent_test.py");
+        let update_file_index = new_path_registry.register_path(update_file_path.clone());
+
+        let mut update_functions = HashSet::new();
+        update_functions.insert(create_test_symbol(
+            "concurrent_function",
+            SymbolType::Function,
+            1,
+            update_file_index,
+        ));
+
+        let update_data = SymbolData {
+            functions: update_functions,
+            classes: HashSet::new(),
+            path_registry: new_path_registry,
+        };
+
+        let version = store
+            .incremental_update(vec![update_file_path], vec![], update_data)
+            .await
+            .unwrap();
+
+        assert_eq!(version, 2);
+
+        // Wait for all readers to complete
+        for handle in read_handles {
+            handle.await.unwrap();
+        }
+
+        // Verify the update was applied
+        let results = store.search("concurrent_function");
+        assert_eq!(results.len(), 1);
     }
 
     #[tokio::test]

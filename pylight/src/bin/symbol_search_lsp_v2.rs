@@ -204,7 +204,7 @@ async fn file_watcher_task(
     // Keep the watcher alive by storing it in a variable
     let _watcher_handle = watcher;
     while let Some(change) = rx.recv().await {
-        info!(
+        debug!(
             "File watcher received change: {:?} - {:?}",
             change.change_type, change.path
         );
