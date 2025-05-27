@@ -385,31 +385,6 @@ async fn handle_workspace_symbol_request_async(
         return Vec::new();
     }
 
-    // Add debugging info about the store state
-    let db = symbol_store.read();
-    info!(
-        "🔍 Store state: version={}, functions={}, classes={}",
-        db.version,
-        db.functions.len(),
-        db.classes.len()
-    );
-
-    // Log some symbol names for debugging
-    if !db.functions.is_empty() {
-        let first_few: Vec<&str> = db
-            .functions
-            .iter()
-            .take(3)
-            .map(|s| s.name.as_str())
-            .collect();
-        info!("🔍 First few function names: {:?}", first_few);
-    }
-    if !db.classes.is_empty() {
-        let first_few: Vec<&str> = db.classes.iter().take(3).map(|s| s.name.as_str()).collect();
-        info!("🔍 First few class names: {:?}", first_few);
-    }
-    drop(db); // Release the read lock
-
     let search_start = Instant::now();
 
     // Handle empty queries by returning some symbols (common LSP behavior)
