@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
 
 use lsp_server::{Connection, ErrorCode, Message, Response, ResponseError};
@@ -262,7 +262,7 @@ async fn debounced_change_processor(
         match change_result {
             Some(change) => {
                 // New change received
-                info!(
+                debug!(
                     "File change detected: {:?} - {:?} (pending: {})",
                     change.change_type,
                     change.path,
