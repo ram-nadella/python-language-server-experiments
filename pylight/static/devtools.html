@@ -15,7 +15,6 @@
         
         .container {
             background: white;
-            border-radius: 8px;
             padding: 0;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
@@ -42,25 +41,22 @@
             font-size: 16px;
             color: #666;
             position: relative;
+            transition: all 0.2s ease;
         }
         
-        .tab:hover {
+        .tab:hover:not(.active) {
             color: #333;
+            background: rgba(0, 0, 0, 0.05);
         }
         
         .tab.active {
-            color: #4CAF50;
+            color: #fff;
+            background: #4CAF50;
             font-weight: 600;
         }
         
-        .tab.active::after {
-            content: '';
-            position: absolute;
-            bottom: -2px;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: #4CAF50;
+        .tab.active:hover {
+            background: #45a049;
         }
         
         /* Tab Content */
@@ -88,7 +84,6 @@
             width: 100%;
             padding: 10px;
             border: 2px solid #ddd;
-            border-radius: 4px;
             font-size: 16px;
             box-sizing: border-box;
         }
@@ -103,7 +98,6 @@
             color: white;
             border: none;
             padding: 10px 20px;
-            border-radius: 4px;
             font-size: 16px;
             cursor: pointer;
             margin-top: 10px;
@@ -125,7 +119,6 @@
         #status {
             margin-top: 10px;
             padding: 10px;
-            border-radius: 4px;
             display: none;
         }
         
@@ -171,7 +164,6 @@
             color: #666;
             background: #f0f0f0;
             padding: 2px 8px;
-            border-radius: 3px;
         }
         
         .result-location {
@@ -201,7 +193,6 @@
             background: #f0f8ff;
             border: 1px solid #b0d4ff;
             padding: 15px;
-            border-radius: 4px;
             margin-bottom: 20px;
         }
         
@@ -226,7 +217,6 @@
             font-family: monospace;
             padding: 10px;
             border: 2px solid #ddd;
-            border-radius: 4px;
             box-sizing: border-box;
         }
         
@@ -257,7 +247,7 @@
                 <div class="parser-selector">
                     <label for="parserSelect" style="margin-bottom: 0;">Parser Backend:</label>
                     <select id="parserSelect">
-                        <option value="tree-sitter">Tree-sitter (default)</option>
+                        <option value="tree-sitter">Tree-sitter</option>
                         <option value="ruff">Ruff</option>
                     </select>
                 </div>
