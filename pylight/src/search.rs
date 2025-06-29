@@ -85,7 +85,7 @@ impl SearchEngine {
 
         let total_duration = start_time.elapsed();
 
-        tracing::info!(
+        tracing::debug!(
             "Search for '{}': {} results, {} boosted. Timing - fuzzy: {:?}, boost: {:?}, sort: {:?}, total: {:?}",
             query,
             results.len(),
