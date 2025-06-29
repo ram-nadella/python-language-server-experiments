@@ -93,8 +93,8 @@ fn test_parallel_indexing_is_faster_than_sequential() {
 
 #[test]
 fn test_parallel_indexing_uses_multiple_threads() {
+    use parking_lot::Mutex;
     use std::collections::HashSet;
-    use std::sync::Mutex;
 
     let (_temp_dir, files) = create_test_files_with_delays();
     let thread_ids = Arc::new(Mutex::new(HashSet::new()));
@@ -112,13 +112,13 @@ fn test_parallel_indexing_uses_multiple_threads() {
     pool.install(|| {
         files.par_iter().for_each(|_file| {
             let thread_id = std::thread::current().id();
-            thread_ids_clone.lock().unwrap().insert(thread_id);
+            thread_ids_clone.lock().insert(thread_id);
             // Simulate some work
             std::thread::sleep(Duration::from_millis(10));
         });
     });
 
-    let unique_threads = thread_ids.lock().unwrap().len();
+    let unique_threads = thread_ids.lock().len();
 
     eprintln!("Used {unique_threads} unique threads out of {num_threads} available");
 

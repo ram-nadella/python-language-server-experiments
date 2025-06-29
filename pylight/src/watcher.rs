@@ -294,8 +294,8 @@ impl Drop for FileWatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parking_lot::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Mutex;
 
     #[allow(dead_code)]
     struct TestEventHandler {
@@ -305,7 +305,7 @@ mod tests {
 
     impl FileEventHandler for TestEventHandler {
         fn handle_event(&self, event: FileEvent) {
-            self.events.lock().unwrap().push(event);
+            self.events.lock().push(event);
             self.counter.fetch_add(1, Ordering::SeqCst);
         }
 

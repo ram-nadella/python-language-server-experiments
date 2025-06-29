@@ -2,8 +2,9 @@
 
 use crate::watcher::{FileEvent, FileEventHandler};
 use crate::{PythonParser, Result, SymbolIndex};
+use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
@@ -117,7 +118,7 @@ impl IndexUpdater {
                 info!("Bulk change detected, performing full re-index");
 
                 // Check if we're already re-indexing
-                let state = self.state.read().unwrap();
+                let state = self.state.read();
                 if *state == UpdaterState::ReIndexing {
                     info!("Already re-indexing, skipping bulk change event");
                     return;
@@ -125,13 +126,13 @@ impl IndexUpdater {
                 drop(state);
 
                 // Set state to re-indexing
-                *self.state.write().unwrap() = UpdaterState::ReIndexing;
+                *self.state.write() = UpdaterState::ReIndexing;
 
                 if let Err(e) = self.perform_full_reindex() {
                     error!("Failed to perform full re-index: {}", e);
                 }
 
-                *self.state.write().unwrap() = UpdaterState::Idle;
+                *self.state.write() = UpdaterState::Idle;
             }
             FileEvent::FileRemoved(path) => {
                 if let Err(e) = self.index.remove_file(&path) {
@@ -210,7 +211,7 @@ mod tests {
         let index = Arc::new(SymbolIndex::new());
         let updater = IndexUpdater::new(index, temp_dir.path().to_path_buf());
 
-        assert_eq!(*updater.state.read().unwrap(), UpdaterState::Idle);
+        assert_eq!(*updater.state.read(), UpdaterState::Idle);
     }
 
     #[test]

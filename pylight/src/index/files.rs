@@ -2,8 +2,9 @@
 
 use crate::file_filter::IgnoreFilter;
 use ignore::WalkBuilder;
+use parking_lot::Mutex;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Collect all Python files in a directory
 pub fn collect_python_files(root: &PathBuf) -> Vec<PathBuf> {
@@ -32,7 +33,7 @@ pub fn collect_python_files(root: &PathBuf) -> Vec<PathBuf> {
                     let canonical_path = path
                         .canonicalize()
                         .unwrap_or_else(|_| path.to_path_buf());
-                    files.lock().unwrap().push(canonical_path);
+                    files.lock().push(canonical_path);
                 }
             }
             ignore::WalkState::Continue
@@ -40,6 +41,6 @@ pub fn collect_python_files(root: &PathBuf) -> Vec<PathBuf> {
     });
 
     Arc::try_unwrap(files)
-        .map(|mutex| mutex.into_inner().unwrap())
-        .unwrap_or_else(|arc| arc.lock().unwrap().clone())
+        .map(|mutex| mutex.into_inner())
+        .unwrap_or_else(|arc| arc.lock().clone())
 }
