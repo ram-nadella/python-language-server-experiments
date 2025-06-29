@@ -12,6 +12,7 @@ pub use ruff::RuffParser;
 pub use tree_sitter::TreeSitterParser;
 
 use crate::Result;
+use std::str::FromStr;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,12 +21,14 @@ pub enum ParserBackend {
     Ruff,
 }
 
-impl ParserBackend {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for ParserBackend {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "tree-sitter" | "treesitter" => Some(Self::TreeSitter),
-            "ruff" => Some(Self::Ruff),
-            _ => None,
+            "tree-sitter" | "treesitter" => Ok(Self::TreeSitter),
+            "ruff" => Ok(Self::Ruff),
+            _ => Err(format!("Invalid parser backend: {s}")),
         }
     }
 }

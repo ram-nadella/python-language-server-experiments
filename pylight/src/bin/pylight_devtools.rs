@@ -106,7 +106,10 @@ fn main() {
                     }
                 };
 
-                info!("Indexing codebase at: {} with parser: {}", index_req.path, index_req.parser);
+                info!(
+                    "Indexing codebase at: {} with parser: {}",
+                    index_req.path, index_req.parser
+                );
 
                 let result = spawn_pylight(&index_req.path, &index_req.parser, pylight.clone());
                 let response = if result.is_ok() {
@@ -248,7 +251,10 @@ class TestClass:
 }
 
 fn spawn_pylight(workspace_path: &str, parser: &str, pylight: SharedPylight) -> Result<(), String> {
-    info!("spawn_pylight called with path: {} and parser: {}", workspace_path, parser);
+    info!(
+        "spawn_pylight called with path: {} and parser: {}",
+        workspace_path, parser
+    );
 
     // Kill existing instance if any
     {
@@ -263,10 +269,18 @@ fn spawn_pylight(workspace_path: &str, parser: &str, pylight: SharedPylight) -> 
 
     // Spawn new pylight instance with parser argument
     let mut cmd = Command::new("cargo");
-    cmd.args(["run", "--release", "--bin", "pylight", "--", "--parser", parser])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.args([
+        "run",
+        "--release",
+        "--bin",
+        "pylight",
+        "--",
+        "--parser",
+        parser,
+    ])
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
 
     let mut child = cmd
         .spawn()

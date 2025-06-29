@@ -58,12 +58,10 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     // Parse the parser backend
-    let parser_backend = ParserBackend::from_str(&args.parser).ok_or_else(|| {
-        pylight::Error::Parse(format!(
-            "Invalid parser backend: {}. Valid options: tree-sitter, ruff",
-            args.parser
-        ))
-    })?;
+    let parser_backend = args
+        .parser
+        .parse::<ParserBackend>()
+        .map_err(pylight::Error::Parse)?;
 
     tracing::info!("Using parser backend: {:?}", parser_backend);
 
