@@ -16,13 +16,61 @@
         .container {
             background: white;
             border-radius: 8px;
-            padding: 30px;
+            padding: 0;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         
         h1 {
             color: #333;
-            margin-bottom: 30px;
+            margin: 0;
+            padding: 30px 30px 20px 30px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        /* Tab Navigation */
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #eee;
+            background: #fafafa;
+        }
+        
+        .tab {
+            padding: 15px 30px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 16px;
+            color: #666;
+            position: relative;
+        }
+        
+        .tab:hover {
+            color: #333;
+        }
+        
+        .tab.active {
+            color: #4CAF50;
+            font-weight: 600;
+        }
+        
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #4CAF50;
+        }
+        
+        /* Tab Content */
+        .tab-content {
+            display: none;
+            padding: 30px;
+        }
+        
+        .tab-content.active {
+            display: block;
         }
         
         .section {
@@ -36,7 +84,7 @@
             color: #555;
         }
         
-        input[type="text"] {
+        input[type="text"], select {
             width: 100%;
             padding: 10px;
             border: 2px solid #ddd;
@@ -45,7 +93,7 @@
             box-sizing: border-box;
         }
         
-        input[type="text"]:focus {
+        input[type="text"]:focus, select:focus {
             outline: none;
             border-color: #4CAF50;
         }
@@ -98,11 +146,12 @@
         }
         
         .result {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            padding: 15px;
-            margin-bottom: 10px;
-            border-radius: 4px;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .result:hover {
+            background: #f9f9f9;
         }
         
         .result-header {
@@ -115,35 +164,33 @@
         .result-name {
             font-weight: 600;
             color: #333;
-            font-size: 18px;
         }
         
         .result-kind {
-            background: #007bff;
-            color: white;
+            font-size: 14px;
+            color: #666;
+            background: #f0f0f0;
             padding: 2px 8px;
             border-radius: 3px;
-            font-size: 12px;
         }
         
         .result-location {
-            color: #666;
             font-size: 14px;
+            color: #888;
             font-family: monospace;
         }
         
-        
         #metrics {
-            margin-top: 20px;
-            padding: 15px;
-            background: #e9ecef;
-            border-radius: 4px;
+            display: flex;
+            gap: 20px;
+            margin-top: 15px;
             font-size: 14px;
+            color: #666;
         }
         
         .metric {
-            display: inline-block;
-            margin-right: 20px;
+            display: flex;
+            gap: 5px;
         }
         
         .metric-label {
@@ -157,41 +204,90 @@
             border-radius: 4px;
             margin-bottom: 20px;
         }
+        
+        /* Parser selector */
+        .parser-selector {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .parser-selector select {
+            width: auto;
+            min-width: 150px;
+        }
+        
+        /* Comparison styles */
+        textarea {
+            width: 100%;
+            height: 200px;
+            margin-bottom: 10px;
+            font-family: monospace;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Pylight DevTools</h1>
         
-        <div id="indexSection" class="section">
-            <div class="instructions">
-                Enter the absolute path to a Python codebase to index it with Pylight.
-                Once indexed, you can search for symbols in real-time.
-            </div>
-            
-            <label for="pathInput">Codebase Path:</label>
-            <input type="text" id="pathInput" placeholder="/path/to/python/project">
-            <button id="indexButton" onclick="indexCodebase()">Index Codebase</button>
-            
-            <div id="status"></div>
+        <!-- Tab Navigation -->
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('search')">Symbol Search</button>
+            <button class="tab" onclick="showTab('compare')">Parser Comparison</button>
         </div>
         
-        <div id="searchSection" class="section">
-            <label for="searchInput">Search Symbols:</label>
-            <input type="text" id="searchInput" placeholder="Type to search..." oninput="searchSymbols()">
-            
-            <div id="metrics"></div>
-            <div id="results"></div>
-        </div>
-        
-        <div class="section">
-            <h2>Parser Comparison</h2>
-            <div class="instructions">
-                Compare how tree-sitter and ruff parsers extract symbols from Python code.
+        <!-- Symbol Search Tab -->
+        <div id="search-tab" class="tab-content active">
+            <div id="indexSection" class="section">
+                <div class="instructions">
+                    Enter the absolute path to a Python codebase to index it with Pylight.
+                    Once indexed, you can search for symbols in real-time.
+                </div>
+                
+                <div class="parser-selector">
+                    <label for="parserSelect" style="margin-bottom: 0;">Parser Backend:</label>
+                    <select id="parserSelect">
+                        <option value="tree-sitter">Tree-sitter (default)</option>
+                        <option value="ruff">Ruff</option>
+                    </select>
+                </div>
+                
+                <label for="pathInput">Codebase Path:</label>
+                <input type="text" id="pathInput" placeholder="/path/to/python/project">
+                <button id="indexButton" onclick="indexCodebase()">Index Codebase</button>
+                
+                <div id="status"></div>
             </div>
             
-            <label for="codeInput">Python Code:</label>
-            <textarea id="codeInput" style="width: 100%; height: 200px; margin-bottom: 10px; font-family: monospace;">
+            <div id="searchSection" class="section">
+                <label for="searchInput">Search Symbols:</label>
+                <input type="text" id="searchInput" placeholder="Type to search..." oninput="searchSymbols()">
+                
+                <div id="metrics"></div>
+                <div id="results"></div>
+            </div>
+        </div>
+        
+        <!-- Parser Comparison Tab -->
+        <div id="compare-tab" class="tab-content">
+            <div class="section">
+                <div class="instructions">
+                    Compare how tree-sitter and ruff parsers extract symbols from Python code.
+                    Enter Python code below to see the differences in symbol extraction.
+                </div>
+                
+                <label for="codeInput">Python Code:</label>
+                <textarea id="codeInput">
 def example_function():
     """Example function"""
     def nested():
@@ -208,15 +304,32 @@ class ExampleClass:
     @property
     def prop(self):
         return self._prop
-            </textarea>
-            <button onclick="compareParsers()">Compare Parsers</button>
-            
-            <div id="comparisonResults" style="margin-top: 20px;"></div>
+                </textarea>
+                <button onclick="compareParsers()">Compare Parsers</button>
+                
+                <div id="comparisonResults" style="margin-top: 20px;"></div>
+            </div>
         </div>
     </div>
 
     <script>
         let indexedPath = null;
+        let currentParser = 'tree-sitter';
+        
+        function showTab(tab) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(`${tab}-tab`).classList.add('active');
+        }
+        
+        // Update current parser when selection changes
+        document.getElementById('parserSelect').addEventListener('change', function() {
+            currentParser = this.value;
+        });
         
         async function indexCodebase() {
             const path = document.getElementById('pathInput').value.trim();
@@ -230,20 +343,23 @@ class ExampleClass:
             
             button.disabled = true;
             button.textContent = 'Indexing...';
-            showStatus('Starting Pylight and indexing codebase...', 'success');
+            showStatus(`Starting Pylight with ${currentParser} parser and indexing codebase...`, 'success');
             
             try {
                 const response = await fetch('/index', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path })
+                    body: JSON.stringify({ 
+                        path: path,
+                        parser: currentParser 
+                    })
                 });
                 
                 const result = await response.json();
                 
                 if (response.ok) {
                     indexedPath = path;
-                    showStatus(`Successfully triggered indexing for: ${path}. Check server logs for progress.`, 'success');
+                    showStatus(`Successfully indexed with ${currentParser} parser: ${path}. Check server logs for progress.`, 'success');
                     document.getElementById('searchSection').style.display = 'block';
                     document.getElementById('searchInput').focus();
                 } else {
@@ -323,6 +439,9 @@ class ExampleClass:
                 </div>
                 <div class="metric">
                     <span class="metric-label">Duration:</span> ${duration}ms
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Parser:</span> ${currentParser}
                 </div>
                 <div class="metric">
                     <span class="metric-label">Indexed:</span> ${escapeHtml(indexedPath)}

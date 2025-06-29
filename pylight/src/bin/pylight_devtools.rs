@@ -20,6 +20,12 @@ struct PylightInstance {
 #[derive(Serialize, Deserialize)]
 struct IndexRequest {
     path: String,
+    #[serde(default = "default_parser")]
+    parser: String,
+}
+
+fn default_parser() -> String {
+    "tree-sitter".to_string()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -100,9 +106,9 @@ fn main() {
                     }
                 };
 
-                info!("Indexing codebase at: {}", index_req.path);
+                info!("Indexing codebase at: {} with parser: {}", index_req.path, index_req.parser);
 
-                let result = spawn_pylight(&index_req.path, pylight.clone());
+                let result = spawn_pylight(&index_req.path, &index_req.parser, pylight.clone());
                 let response = if result.is_ok() {
                     info!("Successfully spawned pylight for {}", index_req.path);
                     Response::from_string(json!({"status": "success"}).to_string())
@@ -241,8 +247,8 @@ class TestClass:
     }
 }
 
-fn spawn_pylight(workspace_path: &str, pylight: SharedPylight) -> Result<(), String> {
-    info!("spawn_pylight called with path: {}", workspace_path);
+fn spawn_pylight(workspace_path: &str, parser: &str, pylight: SharedPylight) -> Result<(), String> {
+    info!("spawn_pylight called with path: {} and parser: {}", workspace_path, parser);
 
     // Kill existing instance if any
     {
@@ -253,11 +259,11 @@ fn spawn_pylight(workspace_path: &str, pylight: SharedPylight) -> Result<(), Str
         }
     }
 
-    info!("Spawning new pylight instance");
+    info!("Spawning new pylight instance with {} parser", parser);
 
-    // Spawn new pylight instance
+    // Spawn new pylight instance with parser argument
     let mut cmd = Command::new("cargo");
-    cmd.args(["run", "--release", "--bin", "pylight"])
+    cmd.args(["run", "--release", "--bin", "pylight", "--", "--parser", parser])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
