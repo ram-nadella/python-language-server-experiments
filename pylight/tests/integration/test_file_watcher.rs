@@ -20,7 +20,7 @@ fn test_file_watcher_single_file_change() {
     fs::write(&file_path, "def hello():\n    pass\n").unwrap();
 
     // Create index and updater
-    let index = Arc::new(SymbolIndex::new());
+    let index = Arc::new(SymbolIndex::default());
 
     // Do initial indexing
     index.clone().index_workspace(&workspace_path).unwrap();
@@ -82,7 +82,7 @@ fn test_file_watcher_bulk_changes() {
     }
 
     // Create index and do initial indexing
-    let index = Arc::new(SymbolIndex::new());
+    let index = Arc::new(SymbolIndex::default());
     index.clone().index_workspace(&workspace_path).unwrap();
     assert_eq!(index.get_file_count(), 15);
     assert_eq!(index.get_all_symbols().len(), 15);
@@ -132,7 +132,7 @@ fn test_file_watcher_file_removal() {
     fs::write(&file2, "def func2():\n    pass\n").unwrap();
 
     // Create index and do initial indexing
-    let index = Arc::new(SymbolIndex::new());
+    let index = Arc::new(SymbolIndex::default());
     index.clone().index_workspace(&workspace_path).unwrap();
     assert_eq!(index.get_file_count(), 2);
     assert_eq!(index.get_all_symbols().len(), 2);
@@ -175,7 +175,7 @@ fn test_file_watcher_rapid_changes() {
     fs::write(&file_path, "def initial():\n    pass\n").unwrap();
 
     // Create index and do initial indexing
-    let index = Arc::new(SymbolIndex::new());
+    let index = Arc::new(SymbolIndex::default());
     index.clone().index_workspace(&workspace_path).unwrap();
 
     // Create updater and file watcher with longer debounce
@@ -223,7 +223,7 @@ fn test_file_watcher_non_python_files_ignored() {
     fs::write(&js_file, "function jsFunc() {}").unwrap();
 
     // Create index and do initial indexing
-    let index = Arc::new(SymbolIndex::new());
+    let index = Arc::new(SymbolIndex::default());
     index.clone().index_workspace(&workspace_path).unwrap();
     assert_eq!(index.get_file_count(), 1); // Only Python file
 

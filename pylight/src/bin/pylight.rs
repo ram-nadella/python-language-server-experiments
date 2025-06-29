@@ -1,7 +1,7 @@
 //! Pylight LSP server binary
 
 use clap::Parser;
-use pylight::{LspServer, Result};
+use pylight::{parser::ParserBackend, LspServer, Result};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
@@ -18,6 +18,10 @@ struct Args {
     /// Search query in standalone mode
     #[arg(short, long, requires = "standalone")]
     query: Option<String>,
+
+    /// Parser backend to use (tree-sitter or ruff)
+    #[arg(long, default_value = "tree-sitter")]
+    parser: String,
 }
 
 fn main() -> Result<()> {
@@ -53,18 +57,32 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
 
+    // Parse the parser backend
+    let parser_backend = ParserBackend::from_str(&args.parser).ok_or_else(|| {
+        pylight::Error::Parse(format!(
+            "Invalid parser backend: {}. Valid options: tree-sitter, ruff",
+            args.parser
+        ))
+    })?;
+
+    tracing::info!("Using parser backend: {:?}", parser_backend);
+
     if args.standalone {
         // Standalone mode for testing
-        run_standalone(args.directory, args.query)
+        run_standalone(args.directory, args.query, parser_backend)
     } else {
         // LSP server mode
         tracing::info!("Starting pylight LSP server");
-        let server = LspServer::new()?;
+        let server = LspServer::new(parser_backend)?;
         server.run()
     }
 }
 
-fn run_standalone(directory: Option<std::path::PathBuf>, query: Option<String>) -> Result<()> {
+fn run_standalone(
+    directory: Option<std::path::PathBuf>,
+    query: Option<String>,
+    parser_backend: ParserBackend,
+) -> Result<()> {
     use pylight::{SearchEngine, SymbolIndex};
     use std::sync::Arc;
 
@@ -73,7 +91,7 @@ fn run_standalone(directory: Option<std::path::PathBuf>, query: Option<String>) 
     tracing::info!("Indexing directory: {}", dir.display());
 
     // Create index and use the parallel index_workspace method
-    let index = Arc::new(SymbolIndex::new());
+    let index = Arc::new(SymbolIndex::new(parser_backend));
     index.clone().index_workspace(&dir)?;
 
     if let Some(query) = query {

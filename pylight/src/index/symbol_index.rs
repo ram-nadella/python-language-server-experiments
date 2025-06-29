@@ -1,6 +1,7 @@
 //! Symbol index implementation
 
-use crate::{PythonParser, Result, Symbol};
+use crate::parser::{create_parser, ParserBackend};
+use crate::{Result, Symbol};
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -13,6 +14,7 @@ pub struct SymbolIndex {
     symbols: Arc<RwLock<HashMap<PathBuf, Vec<Arc<Symbol>>>>>,
     all_symbols: Arc<RwLock<Vec<Arc<Symbol>>>>,
     file_metadata: Arc<RwLock<HashMap<PathBuf, FileMetadata>>>,
+    parser_backend: ParserBackend,
 }
 
 #[derive(Debug, Clone)]
@@ -22,12 +24,18 @@ pub struct FileMetadata {
 }
 
 impl SymbolIndex {
-    pub fn new() -> Self {
+    pub fn new(parser_backend: ParserBackend) -> Self {
         Self {
             symbols: Arc::new(RwLock::new(HashMap::new())),
             all_symbols: Arc::new(RwLock::new(Vec::new())),
             file_metadata: Arc::new(RwLock::new(HashMap::new())),
+            parser_backend,
         }
+    }
+
+    /// Get the parser backend used by this index
+    pub fn parser_backend(&self) -> ParserBackend {
+        self.parser_backend
     }
 
     pub fn add_file(&self, path: PathBuf, symbols: Vec<Symbol>) -> Result<()> {
@@ -238,8 +246,8 @@ impl SymbolIndex {
                     thread_id
                 );
 
-                // Each thread gets its own parser
-                let mut parser = match PythonParser::new() {
+                // Create parser instance for this thread
+                let parser = match create_parser(self.parser_backend) {
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!("Failed to create parser: {}", e);
@@ -335,7 +343,7 @@ impl SymbolIndex {
 
 impl Default for SymbolIndex {
     fn default() -> Self {
-        Self::new()
+        Self::new(ParserBackend::TreeSitter)
     }
 }
 
@@ -345,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_index_creation() {
-        let index = SymbolIndex::new();
+        let index = SymbolIndex::new(ParserBackend::TreeSitter);
         assert_eq!(index.get_all_symbols().len(), 0);
     }
 }

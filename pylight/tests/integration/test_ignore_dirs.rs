@@ -46,7 +46,7 @@ fn test_ignored_directories_not_indexed() {
     }
 
     // Create and index the workspace
-    let index = Arc::new(SymbolIndex::new());
+    let index = Arc::new(SymbolIndex::default());
     index.clone().index_workspace(&workspace_path).unwrap();
 
     // Check that only non-ignored Python files were indexed
@@ -86,7 +86,7 @@ fn test_file_watcher_ignores_directories() {
     fs::create_dir_all(&venv_path).unwrap();
 
     // Create index and initial indexing
-    let index = Arc::new(SymbolIndex::new());
+    let index = Arc::new(SymbolIndex::default());
     index.clone().index_workspace(&workspace_path).unwrap();
     assert_eq!(index.get_file_count(), 1);
 

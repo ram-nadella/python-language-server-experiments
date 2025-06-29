@@ -51,7 +51,7 @@ fn test_parallel_indexing_is_faster_than_sequential() {
         .unwrap();
 
     let (seq_files, seq_symbols, _) = pool_sequential.install(|| {
-        let index = Arc::new(SymbolIndex::new());
+        let index = Arc::new(SymbolIndex::default());
         index.parse_and_index_files(files.clone()).unwrap()
     });
     let sequential_duration = sequential_start.elapsed();
@@ -65,7 +65,7 @@ fn test_parallel_indexing_is_faster_than_sequential() {
         .unwrap();
 
     let (par_files, par_symbols, _) = pool_parallel.install(|| {
-        let index = Arc::new(SymbolIndex::new());
+        let index = Arc::new(SymbolIndex::default());
         index.parse_and_index_files(files.clone()).unwrap()
     });
     let parallel_duration = parallel_start.elapsed();

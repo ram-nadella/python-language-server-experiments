@@ -1,7 +1,8 @@
 //! Index update coordinator that handles file change events
 
+use crate::parser::create_parser;
 use crate::watcher::{FileEvent, FileEventHandler};
-use crate::{PythonParser, Result, SymbolIndex};
+use crate::{Result, SymbolIndex};
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -48,8 +49,8 @@ impl IndexUpdater {
 
         let start = Instant::now();
 
-        // Create a parser for this file
-        let mut parser = PythonParser::new()?;
+        // Create a parser for this file using the index's backend
+        let parser = create_parser(self.index.parser_backend())?;
 
         // Read and parse the file
         match std::fs::read_to_string(path) {
@@ -86,8 +87,8 @@ impl IndexUpdater {
         info!("Starting full workspace re-index");
         let start = Instant::now();
 
-        // Create a new temporary index
-        let new_index = Arc::new(SymbolIndex::new());
+        // Create a new temporary index with the same parser backend
+        let new_index = Arc::new(SymbolIndex::new(self.index.parser_backend()));
 
         // Index the workspace into the new index
         new_index.clone().index_workspace(&self.workspace_root)?;
@@ -208,7 +209,7 @@ mod tests {
     #[test]
     fn test_updater_creation() {
         let temp_dir = TempDir::new().unwrap();
-        let index = Arc::new(SymbolIndex::new());
+        let index = Arc::new(SymbolIndex::default());
         let updater = IndexUpdater::new(index, temp_dir.path().to_path_buf());
 
         assert_eq!(*updater.state.read(), UpdaterState::Idle);
@@ -217,7 +218,7 @@ mod tests {
     #[test]
     fn test_should_watch_python_files() {
         let temp_dir = TempDir::new().unwrap();
-        let index = Arc::new(SymbolIndex::new());
+        let index = Arc::new(SymbolIndex::default());
         let updater = IndexUpdater::new(index, temp_dir.path().to_path_buf());
 
         assert!(updater.should_watch(Path::new("test.py")));

@@ -1,6 +1,7 @@
 //! Core LSP server implementation
 
 use crate::index::updater::IndexUpdater;
+use crate::parser::ParserBackend;
 use crate::watcher::{FileWatcher, WatcherConfig};
 use crate::{Error, Result, SearchEngine, SymbolIndex};
 use lsp_server::{Connection, Message, RequestId, Response};
@@ -21,12 +22,12 @@ pub struct LspServer {
 }
 
 impl LspServer {
-    pub fn new() -> Result<Self> {
+    pub fn new(parser_backend: ParserBackend) -> Result<Self> {
         let (connection, _io_threads) = Connection::stdio();
 
         Ok(Self {
             connection,
-            index: Arc::new(SymbolIndex::new()),
+            index: Arc::new(SymbolIndex::new(parser_backend)),
             search_engine: Arc::new(SearchEngine::new()),
             workspace_root: None,
             cancelled_requests: Arc::new(Mutex::new(HashSet::new())),

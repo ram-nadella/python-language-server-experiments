@@ -10,7 +10,7 @@ fn test_lsp_handler() {
     use std::sync::Arc;
 
     // Create test symbols
-    let index = Arc::new(SymbolIndex::new());
+    let index = Arc::new(SymbolIndex::default());
     let search_engine = Arc::new(SearchEngine::new());
 
     let symbols = vec![
@@ -62,7 +62,7 @@ fn test_empty_query_returns_symbols() {
     use pylight::{SearchEngine, Symbol, SymbolKind};
     use std::sync::Arc;
 
-    let index = Arc::new(SymbolIndex::new());
+    let index = Arc::new(SymbolIndex::default());
     let search_engine = Arc::new(SearchEngine::new());
 
     // Add test symbols

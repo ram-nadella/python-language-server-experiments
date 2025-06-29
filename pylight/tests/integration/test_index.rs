@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[test]
 fn test_index_add_file() {
-    let index = SymbolIndex::new();
+    let index = SymbolIndex::default();
     let path = PathBuf::from("test.py");
 
     let symbols = vec![
@@ -28,7 +28,7 @@ fn test_index_add_file() {
 
 #[test]
 fn test_index_update_file() {
-    let index = SymbolIndex::new();
+    let index = SymbolIndex::default();
     let path = PathBuf::from("test.py");
 
     // Add initial symbols
@@ -73,7 +73,7 @@ fn test_index_update_file() {
 
 #[test]
 fn test_index_remove_file() {
-    let index = SymbolIndex::new();
+    let index = SymbolIndex::default();
     let path1 = PathBuf::from("file1.py");
     let path2 = PathBuf::from("file2.py");
 
@@ -109,7 +109,7 @@ fn test_index_remove_file() {
 
 #[test]
 fn test_index_clear() {
-    let index = SymbolIndex::new();
+    let index = SymbolIndex::default();
     let path = PathBuf::from("test.py");
 
     let symbols = vec![Symbol::new(

@@ -69,7 +69,7 @@ fn benchmark_parallel_indexing(c: &mut Criterion) {
 
                 pool.install(|| {
                     // Create a fresh index for each iteration
-                    let index = Arc::new(SymbolIndex::new());
+                    let index = Arc::new(SymbolIndex::default());
 
                     // Parse and index files
                     // Return the result to prevent optimization
@@ -107,7 +107,7 @@ fn benchmark_parallel_vs_sequential(c: &mut Criterion) {
                 .unwrap();
 
             pool.install(|| {
-                let index = Arc::new(SymbolIndex::new());
+                let index = Arc::new(SymbolIndex::default());
                 index.parse_and_index_files(subset.clone()).unwrap()
             });
         });
@@ -122,7 +122,7 @@ fn benchmark_parallel_vs_sequential(c: &mut Criterion) {
                 .unwrap();
 
             pool.install(|| {
-                let index = Arc::new(SymbolIndex::new());
+                let index = Arc::new(SymbolIndex::default());
                 index.parse_and_index_files(subset.clone()).unwrap()
             });
         });

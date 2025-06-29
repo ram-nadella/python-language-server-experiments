@@ -1,3 +1,4 @@
+use pylight::parser::{create_parser, ParserBackend};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -88,8 +89,8 @@ fn main() {
                             .respond(
                                 response.with_header(
                                     tiny_http::Header::from_bytes(
-                                        &b"Content-Type"[..],
-                                        &b"application/json"[..],
+                                        b"Content-Type",
+                                        b"application/json",
                                     )
                                     .unwrap(),
                                 ),
@@ -177,6 +178,56 @@ fn main() {
                             )
                             .unwrap(),
                         ),
+                    )
+                    .unwrap();
+            }
+            ("POST", "/compare-parsers") => {
+                let mut content = String::new();
+                request.as_reader().read_to_string(&mut content).unwrap();
+
+                let req: serde_json::Value = match serde_json::from_str(&content) {
+                    Ok(req) => req,
+                    Err(e) => {
+                        error!("Failed to parse compare request: {}", e);
+                        let response = Response::from_string(
+                            json!({"status": "error", "message": format!("Invalid request: {e}")})
+                                .to_string(),
+                        )
+                        .with_status_code(400);
+                        request
+                            .respond(
+                                response.with_header(
+                                    tiny_http::Header::from_bytes(
+                                        b"Content-Type",
+                                        b"application/json",
+                                    )
+                                    .unwrap(),
+                                ),
+                            )
+                            .unwrap();
+                        continue;
+                    }
+                };
+
+                let test_code = req.get("code").and_then(|v| v.as_str()).unwrap_or(
+                    r#"
+def test_function():
+    pass
+
+class TestClass:
+    def method(self):
+        pass
+"#,
+                );
+
+                let response = compare_parsers(test_code);
+                request
+                    .respond(
+                        Response::from_string(serde_json::to_string(&response).unwrap())
+                            .with_header(
+                                tiny_http::Header::from_bytes(b"Content-Type", b"application/json")
+                                    .unwrap(),
+                            ),
                     )
                     .unwrap();
             }
@@ -440,4 +491,79 @@ fn read_lsp_message(instance: &mut PylightInstance) -> Result<Value, String> {
         serde_json::from_str(&content_str).map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
     Ok(response)
+}
+
+fn compare_parsers(code: &str) -> Value {
+    use std::path::Path;
+
+    let test_path = Path::new("test.py");
+
+    // Parse with tree-sitter
+    let ts_start = Instant::now();
+    let ts_parser = create_parser(ParserBackend::TreeSitter).unwrap();
+    let ts_symbols = ts_parser.parse_file(test_path, code).unwrap_or_default();
+    let ts_duration = ts_start.elapsed();
+
+    // Parse with ruff
+    let ruff_start = Instant::now();
+    let ruff_parser = create_parser(ParserBackend::Ruff).unwrap();
+    let ruff_symbols = ruff_parser.parse_file(test_path, code).unwrap_or_default();
+    let ruff_duration = ruff_start.elapsed();
+
+    // Compare results
+    let ts_symbol_info: Vec<Value> = ts_symbols
+        .iter()
+        .map(|s| {
+            json!({
+                "name": s.name,
+                "kind": format!("{:?}", s.kind),
+                "line": s.line,
+                "column": s.column,
+                "container": s.container_name.as_ref(),
+            })
+        })
+        .collect();
+
+    let ruff_symbol_info: Vec<Value> = ruff_symbols
+        .iter()
+        .map(|s| {
+            json!({
+                "name": s.name,
+                "kind": format!("{:?}", s.kind),
+                "line": s.line,
+                "column": s.column,
+                "container": s.container_name.as_ref(),
+            })
+        })
+        .collect();
+
+    let same_count = ts_symbols.len() == ruff_symbols.len();
+    let same_symbols = ts_symbols
+        .iter()
+        .zip(ruff_symbols.iter())
+        .all(|(ts, ruff)| {
+            ts.name == ruff.name && ts.kind == ruff.kind && ts.container_name == ruff.container_name
+        });
+
+    json!({
+        "tree_sitter": {
+            "symbols": ts_symbol_info,
+            "count": ts_symbols.len(),
+            "duration_ms": ts_duration.as_secs_f64() * 1000.0,
+        },
+        "ruff": {
+            "symbols": ruff_symbol_info,
+            "count": ruff_symbols.len(),
+            "duration_ms": ruff_duration.as_secs_f64() * 1000.0,
+        },
+        "comparison": {
+            "same_count": same_count,
+            "same_symbols": same_symbols,
+            "differences": if !same_symbols {
+                Some("Symbols differ in name, kind, or container")
+            } else {
+                None
+            }
+        }
+    })
 }

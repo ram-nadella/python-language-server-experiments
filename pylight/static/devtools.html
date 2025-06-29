@@ -183,6 +183,36 @@
             <div id="metrics"></div>
             <div id="results"></div>
         </div>
+        
+        <div class="section">
+            <h2>Parser Comparison</h2>
+            <div class="instructions">
+                Compare how tree-sitter and ruff parsers extract symbols from Python code.
+            </div>
+            
+            <label for="codeInput">Python Code:</label>
+            <textarea id="codeInput" style="width: 100%; height: 200px; margin-bottom: 10px; font-family: monospace;">
+def example_function():
+    """Example function"""
+    def nested():
+        pass
+    return nested
+
+async def async_func():
+    pass
+
+class ExampleClass:
+    def method(self):
+        pass
+    
+    @property
+    def prop(self):
+        return self._prop
+            </textarea>
+            <button onclick="compareParsers()">Compare Parsers</button>
+            
+            <div id="comparisonResults" style="margin-top: 20px;"></div>
+        </div>
     </div>
 
     <script>
@@ -315,6 +345,69 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+        
+        async function compareParsers() {
+            const code = document.getElementById('codeInput').value;
+            const resultsDiv = document.getElementById('comparisonResults');
+            
+            resultsDiv.innerHTML = '<p>Comparing parsers...</p>';
+            
+            try {
+                const response = await fetch('/compare-parsers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to compare parsers');
+                }
+                
+                const data = await response.json();
+                
+                // Display comparison results
+                resultsDiv.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div>
+                            <h3>Tree-sitter (${data.tree_sitter.count} symbols, ${data.tree_sitter.duration_ms.toFixed(2)}ms)</h3>
+                            <div style="background: #f5f5f5; padding: 10px; border-radius: 4px;">
+                                ${data.tree_sitter.symbols.map(s => `
+                                    <div style="margin-bottom: 5px;">
+                                        <strong>${escapeHtml(s.name)}</strong> 
+                                        <span style="color: #666;">${s.kind}</span>
+                                        <span style="color: #999;">L${s.line}:${s.column}</span>
+                                        ${s.container ? `<span style="color: #888;"> in ${escapeHtml(s.container)}</span>` : ''}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h3>Ruff (${data.ruff.count} symbols, ${data.ruff.duration_ms.toFixed(2)}ms)</h3>
+                            <div style="background: #f5f5f5; padding: 10px; border-radius: 4px;">
+                                ${data.ruff.symbols.map(s => `
+                                    <div style="margin-bottom: 5px;">
+                                        <strong>${escapeHtml(s.name)}</strong> 
+                                        <span style="color: #666;">${s.kind}</span>
+                                        <span style="color: #999;">L${s.line}:${s.column}</span>
+                                        ${s.container ? `<span style="color: #888;"> in ${escapeHtml(s.container)}</span>` : ''}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 20px; padding: 10px; background: ${data.comparison.same_symbols ? '#d4edda' : '#f8d7da'}; border-radius: 4px;">
+                        <strong>Comparison:</strong>
+                        ${data.comparison.same_count ? '✓ Same number of symbols' : '✗ Different number of symbols'}<br>
+                        ${data.comparison.same_symbols ? '✓ All symbols match' : '✗ Symbols differ'}
+                        ${data.comparison.differences ? `<br>Note: ${data.comparison.differences}` : ''}
+                    </div>
+                `;
+            } catch (error) {
+                resultsDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
         }
         
         // Handle Enter key on path input
