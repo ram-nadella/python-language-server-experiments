@@ -302,8 +302,15 @@ impl SymbolIndex {
         tracing::info!("Starting workspace indexing for: {}", root.display());
 
         // Collect all Python files first
+        let file_collection_start = std::time::Instant::now();
         let python_files = files::collect_python_files(root);
-        tracing::info!("Found {} Python files to index", python_files.len());
+        let file_collection_elapsed = file_collection_start.elapsed();
+        tracing::info!(
+            "Found {} Python files to index in {:.2}s (using {} threads)",
+            python_files.len(),
+            file_collection_elapsed.as_secs_f64(),
+            num_cpus::get().saturating_sub(1).max(1)
+        );
 
         // Log thread pool info
         tracing::info!(
