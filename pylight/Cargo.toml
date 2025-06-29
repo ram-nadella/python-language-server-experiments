@@ -40,8 +40,9 @@ url = "2.5.4"
 radix_trie = "0.2.1"
 tiny_http = "0.12"
 urlencoding = "2.1"
-notify = "8.0"
+notify = { version = "8.0", features = ["crossbeam-channel"] }
 parking_lot = "0.12"
+crossbeam-channel = "0.5"
 
 [build-dependencies]
 chrono = "0.4"

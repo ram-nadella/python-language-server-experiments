@@ -1233,6 +1233,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2fee8403b3d66ac7b26aee6e40a897d85dc5ce26f44da36b8b73e987cc52e943"
 dependencies = [
  "bitflags 2.9.0",
+ "crossbeam-channel",
  "filetime",
  "fsevent-sys",
  "inotify",
@@ -1416,6 +1417,7 @@ dependencies = [
  "chrono",
  "clap",
  "criterion",
+ "crossbeam-channel",
  "crossterm",
  "flate2",
  "fluent-uri 0.3.2",
