@@ -18,7 +18,7 @@ pub fn handle_workspace_symbol(
     request_id: RequestId,
 ) -> Result<Vec<SymbolInformation>> {
     let start = std::time::Instant::now();
-    
+
     // Use with_all_symbols to avoid cloning the entire symbol list
     let result = index.with_all_symbols(|all_symbols| {
         let get_symbols_duration = start.elapsed();
@@ -89,6 +89,6 @@ pub fn handle_workspace_symbol(
 
         Ok(lsp_symbols)
     });
-    
+
     result
 }

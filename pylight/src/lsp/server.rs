@@ -112,10 +112,8 @@ impl LspServer {
                         match serde_json::from_value::<WorkspaceSymbolParams>(req.params) {
                             Ok(params) => {
                                 // Check if request was already cancelled
-                                let is_cancelled = self
-                                    .cancelled_requests
-                                    .lock()
-                                    .contains(&request_id);
+                                let is_cancelled =
+                                    self.cancelled_requests.lock().contains(&request_id);
                                 if is_cancelled {
                                     tracing::info!(
                                         "Request {} was cancelled before processing",
@@ -140,7 +138,7 @@ impl LspServer {
                                 // This allows the main loop to continue processing messages (like cancellations)
                                 // while the search is running
                                 thread::Builder::new()
-                                    .name(format!("lsp-request-{}", req_id_for_log))
+                                    .name(format!("lsp-request-{req_id_for_log}"))
                                     .spawn(move || {
                                     let result = super::handlers::handle_workspace_symbol(
                                         params,

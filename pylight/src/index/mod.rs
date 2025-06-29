@@ -120,10 +120,7 @@ impl SymbolIndex {
     /// Get metadata for a file
     pub fn get_file_metadata(&self, path: &Path) -> Option<FileMetadata> {
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        self.file_metadata
-            .read()
-            .get(&canonical_path)
-            .cloned()
+        self.file_metadata.read().get(&canonical_path).cloned()
     }
 
     /// Update specific files without full re-index

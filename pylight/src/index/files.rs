@@ -21,7 +21,7 @@ pub fn collect_python_files(root: &PathBuf) -> Vec<PathBuf> {
     builder.build_parallel().run(|| {
         let ignore_filter = Arc::clone(&ignore_filter);
         let files = Arc::clone(&files);
-        
+
         Box::new(move |entry| {
             if let Ok(entry) = entry {
                 let path = entry.path();
@@ -30,9 +30,7 @@ pub fn collect_python_files(root: &PathBuf) -> Vec<PathBuf> {
                     && path.extension().and_then(|s| s.to_str()) == Some("py")
                     && !ignore_filter.should_ignore(path)
                 {
-                    let canonical_path = path
-                        .canonicalize()
-                        .unwrap_or_else(|_| path.to_path_buf());
+                    let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
                     files.lock().push(canonical_path);
                 }
             }
