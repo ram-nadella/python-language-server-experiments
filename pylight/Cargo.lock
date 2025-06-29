@@ -1426,6 +1426,7 @@ dependencies = [
  "lsp-types",
  "notify",
  "num_cpus",
+ "parking_lot",
  "pretty_assertions",
  "radix_trie",
  "rayon",

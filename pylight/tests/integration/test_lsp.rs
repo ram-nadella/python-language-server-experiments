@@ -1,8 +1,8 @@
 use lsp_server::RequestId;
+use parking_lot::Mutex;
 use pylight::SymbolIndex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 #[test]
 fn test_lsp_handler() {

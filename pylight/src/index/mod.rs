@@ -4,10 +4,11 @@ pub mod files;
 pub mod updater;
 
 use crate::{PythonParser, Result, Symbol};
+use parking_lot::RwLock;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 pub struct SymbolIndex {
     symbols: Arc<RwLock<HashMap<PathBuf, Vec<Arc<Symbol>>>>>,
@@ -34,9 +35,9 @@ impl SymbolIndex {
         // Canonicalize the path for consistent comparison
         let canonical_path = path.canonicalize().unwrap_or(path.clone());
 
-        let mut file_symbols = self.symbols.write().unwrap();
-        let mut all = self.all_symbols.write().unwrap();
-        let mut metadata = self.file_metadata.write().unwrap();
+        let mut file_symbols = self.symbols.write();
+        let mut all = self.all_symbols.write();
+        let mut metadata = self.file_metadata.write();
 
         // Remove old symbols for this file if any
         if let Some(_old_symbols) = file_symbols.get(&canonical_path) {
@@ -70,9 +71,9 @@ impl SymbolIndex {
         // Canonicalize the path for consistent comparison
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
-        let mut file_symbols = self.symbols.write().unwrap();
-        let mut all = self.all_symbols.write().unwrap();
-        let mut metadata = self.file_metadata.write().unwrap();
+        let mut file_symbols = self.symbols.write();
+        let mut all = self.all_symbols.write();
+        let mut metadata = self.file_metadata.write();
 
         file_symbols.remove(&canonical_path);
         all.retain(|s| s.file_path != canonical_path);
@@ -82,29 +83,38 @@ impl SymbolIndex {
     }
 
     pub fn get_all_symbols(&self) -> Vec<Arc<Symbol>> {
-        self.all_symbols.read().unwrap().clone()
+        self.all_symbols.read().clone()
+    }
+
+    /// Get a reference to all symbols without cloning for read-only operations
+    pub fn with_all_symbols<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&[Arc<Symbol>]) -> R,
+    {
+        let symbols = self.all_symbols.read();
+        f(&symbols)
     }
 
     pub fn get_file_symbols(&self, path: &Path) -> Option<Vec<Arc<Symbol>>> {
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        self.symbols.read().unwrap().get(&canonical_path).cloned()
+        self.symbols.read().get(&canonical_path).cloned()
     }
 
     pub fn clear(&self) {
-        self.symbols.write().unwrap().clear();
-        self.all_symbols.write().unwrap().clear();
-        self.file_metadata.write().unwrap().clear();
+        self.symbols.write().clear();
+        self.all_symbols.write().clear();
+        self.file_metadata.write().clear();
     }
 
     /// Get the total number of indexed files
     pub fn get_file_count(&self) -> usize {
-        self.symbols.read().unwrap().len()
+        self.symbols.read().len()
     }
 
     /// Check if a file is already indexed
     pub fn has_file(&self, path: &Path) -> bool {
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        self.symbols.read().unwrap().contains_key(&canonical_path)
+        self.symbols.read().contains_key(&canonical_path)
     }
 
     /// Get metadata for a file
@@ -112,7 +122,6 @@ impl SymbolIndex {
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         self.file_metadata
             .read()
-            .unwrap()
             .get(&canonical_path)
             .cloned()
     }
@@ -122,9 +131,9 @@ impl SymbolIndex {
         &self,
         updates: Vec<(PathBuf, Vec<Symbol>)>,
     ) -> Result<(usize, usize)> {
-        let mut file_symbols = self.symbols.write().unwrap();
-        let mut all = self.all_symbols.write().unwrap();
-        let mut metadata = self.file_metadata.write().unwrap();
+        let mut file_symbols = self.symbols.write();
+        let mut all = self.all_symbols.write();
+        let mut metadata = self.file_metadata.write();
 
         let mut updated_files = 0;
         let mut total_symbols = 0;
@@ -164,13 +173,13 @@ impl SymbolIndex {
     /// Create a new index from scratch and swap it atomically
     pub fn swap_index(&self, new_index: &SymbolIndex) {
         // Acquire all locks in a consistent order to avoid deadlocks
-        let mut symbols = self.symbols.write().unwrap();
-        let mut all_symbols = self.all_symbols.write().unwrap();
-        let mut metadata = self.file_metadata.write().unwrap();
+        let mut symbols = self.symbols.write();
+        let mut all_symbols = self.all_symbols.write();
+        let mut metadata = self.file_metadata.write();
 
-        let new_symbols = new_index.symbols.read().unwrap();
-        let new_all = new_index.all_symbols.read().unwrap();
-        let new_metadata = new_index.file_metadata.read().unwrap();
+        let new_symbols = new_index.symbols.read();
+        let new_all = new_index.all_symbols.read();
+        let new_metadata = new_index.file_metadata.read();
 
         // Swap the contents
         *symbols = new_symbols.clone();
@@ -180,9 +189,9 @@ impl SymbolIndex {
 
     /// Add multiple files in a single batch operation to minimize lock contention
     pub fn add_files_batch(&self, files: Vec<(PathBuf, Vec<Symbol>)>) -> Result<()> {
-        let mut file_symbols = self.symbols.write().unwrap();
-        let mut all = self.all_symbols.write().unwrap();
-        let mut metadata = self.file_metadata.write().unwrap();
+        let mut file_symbols = self.symbols.write();
+        let mut all = self.all_symbols.write();
+        let mut metadata = self.file_metadata.write();
 
         for (path, symbols) in files {
             // Remove old symbols for this file if any

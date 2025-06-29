@@ -5,9 +5,10 @@ use crate::watcher::{FileWatcher, WatcherConfig};
 use crate::{Error, Result, SearchEngine, SymbolIndex};
 use lsp_server::{Connection, Message, RequestId, Response};
 use lsp_types::{InitializeParams, ServerCapabilities, WorkspaceSymbolParams};
+use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 
 pub struct LspServer {
@@ -114,14 +115,13 @@ impl LspServer {
                                 let is_cancelled = self
                                     .cancelled_requests
                                     .lock()
-                                    .unwrap()
                                     .contains(&request_id);
                                 if is_cancelled {
                                     tracing::info!(
                                         "Request {} was cancelled before processing",
                                         request_id
                                     );
-                                    self.cancelled_requests.lock().unwrap().remove(&request_id);
+                                    self.cancelled_requests.lock().remove(&request_id);
                                     continue;
                                 }
 
@@ -216,7 +216,7 @@ impl LspServer {
 
                         if let Ok(params) = serde_json::from_value::<CancelParams>(notif.params) {
                             tracing::info!("Received cancel request for id: {:?}", params.id);
-                            self.cancelled_requests.lock().unwrap().insert(params.id);
+                            self.cancelled_requests.lock().insert(params.id);
                         }
                     }
                 }

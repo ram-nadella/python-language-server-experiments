@@ -41,6 +41,7 @@ radix_trie = "0.2.1"
 tiny_http = "0.12"
 urlencoding = "2.1"
 notify = "8.0"
+parking_lot = "0.12"
 
 [build-dependencies]
 chrono = "0.4"
