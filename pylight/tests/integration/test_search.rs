@@ -78,6 +78,62 @@ fn test_fuzzy_match() {
 }
 
 #[test]
+fn test_exact_match_ranks_first() {
+    let engine = SearchEngine::new();
+
+    // Create symbols where "test" appears in different contexts
+    let symbols = vec![
+        Arc::new(Symbol::new(
+            "test".to_string(), // Exact match
+            SymbolKind::Function,
+            PathBuf::from("exact.py"),
+            1,
+            0,
+        )),
+        Arc::new(Symbol::new(
+            "test_something".to_string(), // Prefix match
+            SymbolKind::Function,
+            PathBuf::from("prefix.py"),
+            1,
+            0,
+        )),
+        Arc::new(Symbol::new(
+            "another_test".to_string(), // Suffix match
+            SymbolKind::Function,
+            PathBuf::from("suffix.py"),
+            1,
+            0,
+        )),
+        Arc::new(Symbol::new(
+            "TestClass".to_string(), // Different case
+            SymbolKind::Class,
+            PathBuf::from("class.py"),
+            1,
+            0,
+        )),
+    ];
+
+    // Search for "test"
+    let results = engine.search("test", &symbols);
+
+    // The exact match "test" should be first
+    assert!(!results.is_empty());
+    assert_eq!(results[0].symbol.name, "test");
+
+    // Exact match should have a higher score than non-exact matches
+    // We multiply by 10, so it should be significantly higher
+    for result in results.iter().skip(1) {
+        assert!(
+            results[0].score > result.score,
+            "Exact match score {} should be higher than {} for symbol '{}'",
+            results[0].score,
+            result.score,
+            result.symbol.name
+        );
+    }
+}
+
+#[test]
 fn test_case_insensitive_search() {
     let engine = SearchEngine::new();
     let symbols = create_test_symbols();
@@ -132,4 +188,45 @@ fn test_search_result_ordering() {
             "Results not properly sorted by score"
         );
     }
+}
+
+#[test]
+fn test_case_insensitive_exact_match() {
+    let engine = SearchEngine::new();
+
+    let symbols = vec![
+        Arc::new(Symbol::new(
+            "TestFunction".to_string(),
+            SymbolKind::Function,
+            PathBuf::from("test.py"),
+            1,
+            0,
+        )),
+        Arc::new(Symbol::new(
+            "test_helper".to_string(),
+            SymbolKind::Function,
+            PathBuf::from("test.py"),
+            10,
+            0,
+        )),
+    ];
+
+    // Search with different case variations
+    let results = engine.search("testfunction", &symbols);
+    assert!(
+        !results.is_empty(),
+        "Should find TestFunction with lowercase query"
+    );
+    assert_eq!(results[0].symbol.name, "TestFunction");
+    // Verify it's boosted (exact match gets 10x multiplier)
+    assert!(results[0].score > 100); // Base fuzzy score would be around 100-300
+
+    let results = engine.search("TestFunction", &symbols);
+    assert!(
+        !results.is_empty(),
+        "Should find TestFunction with exact case"
+    );
+    assert_eq!(results[0].symbol.name, "TestFunction");
+    // Verify it's boosted (exact match gets 10x multiplier)
+    assert!(results[0].score > 100);
 }

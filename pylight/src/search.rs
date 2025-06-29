@@ -9,6 +9,7 @@ pub struct SearchEngine {
     matcher: SkimMatcherV2,
 }
 
+#[derive(Debug)]
 pub struct SearchResult {
     pub symbol: Arc<Symbol>,
     pub score: i64,
@@ -17,7 +18,7 @@ pub struct SearchResult {
 impl SearchEngine {
     pub fn new() -> Self {
         Self {
-            matcher: SkimMatcherV2::default(),
+            matcher: SkimMatcherV2::default().smart_case().use_cache(true),
         }
     }
 
@@ -34,6 +35,9 @@ impl SearchEngine {
                 .collect();
         }
 
+        let start_time = std::time::Instant::now();
+
+        // First pass: collect fuzzy match results
         let mut results: Vec<SearchResult> = symbols
             .iter()
             .filter_map(|symbol| {
@@ -46,14 +50,58 @@ impl SearchEngine {
             })
             .collect();
 
-        // Sort by score descending
-        results.sort_by(|a, b| b.score.cmp(&a.score));
+        let fuzzy_match_duration = start_time.elapsed();
 
-        tracing::debug!(
-            "Search for '{}' returned {} results (sorted by score)",
+        // Second pass: boost exact matches, this is custom logic as the fuzzy matcher is not scoring
+        // exact matches higher than prefix matches eg. when searching for test, test and test_something
+        // are getting the same score
+        let boost_start = std::time::Instant::now();
+        let query_len = query.len();
+        let mut boosted_count = 0;
+
+        for result in &mut results {
+            if result.symbol.name.len() == query_len
+                && result.symbol.name.eq_ignore_ascii_case(query)
+            {
+                let original_score = result.score;
+                result.score = result.score.saturating_mul(10);
+                boosted_count += 1;
+
+                tracing::debug!(
+                    "Boosted exact match '{}': {} -> {}",
+                    result.symbol.name,
+                    original_score,
+                    result.score
+                );
+            }
+        }
+
+        let boost_duration = boost_start.elapsed();
+
+        // Sort by score descending
+        let sort_start = std::time::Instant::now();
+        results.sort_by(|a, b| b.score.cmp(&a.score));
+        let sort_duration = sort_start.elapsed();
+
+        let total_duration = start_time.elapsed();
+
+        tracing::info!(
+            "Search for '{}': {} results, {} boosted. Timing - fuzzy: {:?}, boost: {:?}, sort: {:?}, total: {:?}",
             query,
-            results.len()
+            results.len(),
+            boosted_count,
+            fuzzy_match_duration,
+            boost_duration,
+            sort_duration,
+            total_duration
         );
+
+        if tracing::enabled!(tracing::Level::TRACE) {
+            tracing::trace!(
+                "Top 10 results: {:?}",
+                &results.iter().take(10).collect::<Vec<_>>()
+            );
+        }
 
         results
     }

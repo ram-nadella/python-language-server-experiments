@@ -213,7 +213,7 @@
                 
                 if (response.ok) {
                     indexedPath = path;
-                    showStatus(`Successfully triggered indexing for: ${path}`, 'success');
+                    showStatus(`Successfully triggered indexing for: ${path}. Check server logs for progress.`, 'success');
                     document.getElementById('searchSection').style.display = 'block';
                     document.getElementById('searchInput').focus();
                 } else {

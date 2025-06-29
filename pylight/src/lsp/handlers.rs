@@ -47,7 +47,7 @@ pub fn handle_workspace_symbol(
 
     let lsp_symbols: Vec<SymbolInformation> = search_results
         .into_iter()
-        .take(100) // Limit results
+        .take(200) // Limit results
         .filter_map(|result| {
             let symbol = &result.symbol;
             let uri = url::Url::from_file_path(&symbol.file_path).ok()?;
