@@ -5,12 +5,14 @@ use crate::parser::ParserBackend;
 use crate::watcher::{FileWatcher, WatcherConfig};
 use crate::{Error, Result, SearchEngine, SymbolIndex};
 use lsp_server::{Connection, Message, RequestId, Response};
-use lsp_types::{InitializeParams, ServerCapabilities, WorkspaceSymbolParams};
+use lsp_types::{InitializeParams, ProgressToken, ServerCapabilities, WorkspaceSymbolParams};
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
+
+use super::progress::SimpleProgressReporter;
 
 pub struct LspServer {
     connection: Connection,
@@ -19,6 +21,7 @@ pub struct LspServer {
     workspace_root: Option<PathBuf>,
     cancelled_requests: Arc<Mutex<HashSet<RequestId>>>,
     _file_watcher: Option<FileWatcher>,
+    client_supports_progress: bool,
 }
 
 impl LspServer {
@@ -32,6 +35,7 @@ impl LspServer {
             workspace_root: None,
             cancelled_requests: Arc::new(Mutex::new(HashSet::new())),
             _file_watcher: None,
+            client_supports_progress: false,
         })
     }
 
@@ -47,8 +51,16 @@ impl LspServer {
             .initialize(serde_json::to_value(server_capabilities).unwrap())
             .map_err(|e| Error::Lsp(format!("Failed to initialize: {e}")))?;
 
-        // Extract workspace root
+        // Extract workspace root and client capabilities
         if let Ok(params) = serde_json::from_value::<InitializeParams>(initialization_params) {
+            // Check if client supports work done progress
+            if let Some(capabilities) = params.capabilities.window.as_ref() {
+                self.client_supports_progress = capabilities.work_done_progress.unwrap_or(false);
+                tracing::info!(
+                    "Client work done progress support: {}",
+                    self.client_supports_progress
+                );
+            }
             #[allow(deprecated)]
             if let Some(root_uri) = params.root_uri {
                 if let Ok(url) = url::Url::parse(root_uri.as_str()) {
@@ -85,11 +97,70 @@ impl LspServer {
                             }
                         }
 
+                        // Clone sender for progress reporting
+                        let sender = self.connection.sender.clone();
+                        let supports_progress = self.client_supports_progress;
+
                         thread::spawn(move || {
-                            if let Err(e) = index.index_workspace(&root) {
-                                tracing::error!("Failed to index workspace: {}", e);
+                            if supports_progress {
+                                // Create a progress reporter for indexing
+                                let progress_token =
+                                    ProgressToken::String("pylight-indexing".to_string());
+                                let progress = SimpleProgressReporter::new(sender, progress_token);
+
+                                // Begin progress
+                                if let Err(e) = progress.begin(
+                                    "Indexing Python workspace",
+                                    Some("Discovering Python files...".to_string()),
+                                    None,
+                                ) {
+                                    tracing::warn!("Failed to send progress begin: {}", e);
+                                }
+
+                                // Run indexing with progress updates
+                                match index.clone().index_workspace_with_progress(
+                                    &root,
+                                    |current, total| {
+                                        let percentage = if total > 0 {
+                                            Some(((current as f64 / total as f64) * 100.0) as u32)
+                                        } else {
+                                            None
+                                        };
+
+                                        let message =
+                                            Some(format!("Indexing file {current} of {total}"));
+
+                                        if let Err(e) = progress.report(message, percentage) {
+                                            tracing::warn!("Failed to send progress update: {}", e);
+                                        }
+                                    },
+                                ) {
+                                    Ok(_) => {
+                                        // End progress with success
+                                        if let Err(e) =
+                                            progress.end(Some("Indexing complete".to_string()))
+                                        {
+                                            tracing::warn!("Failed to send progress end: {}", e);
+                                        }
+                                        tracing::info!("Initial workspace indexing completed");
+                                    }
+                                    Err(e) => {
+                                        // End progress with error
+                                        if let Err(e) =
+                                            progress.end(Some(format!("Indexing failed: {e}")))
+                                        {
+                                            tracing::warn!("Failed to send progress end: {}", e);
+                                        }
+                                        tracing::error!("Failed to index workspace: {}", e);
+                                    }
+                                }
                             } else {
-                                tracing::info!("Initial workspace indexing completed");
+                                // Run indexing without progress updates
+                                if let Err(e) = index.index_workspace(&root) {
+                                    tracing::error!("Failed to index workspace: {}", e);
+                                } else {
+                                    tracing::info!("Initial workspace indexing completed");
+                                }
                             }
                         });
                     }
