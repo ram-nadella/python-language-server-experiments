@@ -20,7 +20,6 @@ export function activate(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration("pydance");
   const parser = config.get<string>("parser", "ruff");
   outputChannel.appendLine(`Using parser: ${parser}`);
-
   // If the extension is launched in debug mode then the debug server options are used
   const serverOptions: ServerOptions = {
     run: { command: serverPath, args: ["--parser", parser] },
