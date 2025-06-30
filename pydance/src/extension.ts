@@ -16,20 +16,6 @@ export function activate(context: vscode.ExtensionContext) {
   const serverPath = context.asAbsolutePath(path.join("pylight"));
   outputChannel.appendLine(`Server path: ${serverPath}`);
 
-  // Get the workspace root path
-  const workspaceRoot =
-    vscode.workspace.workspaceFolders &&
-    vscode.workspace.workspaceFolders.length > 0
-      ? vscode.workspace.workspaceFolders[0].uri.fsPath
-      : undefined;
-
-  if (!workspaceRoot) {
-    outputChannel.appendLine("No workspace folder found. Server not starting.");
-    return;
-  }
-
-  outputChannel.appendLine(`Workspace root: ${workspaceRoot}`);
-
   // If the extension is launched in debug mode then the debug server options are used
   const serverOptions: ServerOptions = {
     run: { command: serverPath, args: [] },
