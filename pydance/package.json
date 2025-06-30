@@ -20,18 +20,6 @@
     ],
     "main": "./out/extension.js",
     "contributes": {
-        "languages": [
-            {
-                "id": "python",
-                "aliases": [
-                    "Python",
-                    "python"
-                ],
-                "extensions": [
-                    ".py"
-                ]
-            }
-        ],
         "configuration": {
             "title": "Pydance",
             "properties": {
@@ -40,6 +28,20 @@
                     "default": "ruff",
                     "enum": ["ruff", "tree-sitter"],
                     "description": "Parser backend to use for Python code analysis"
+                },
+                "pydance.trace.server": {
+                    "type": "string",
+                    "default": "off",
+                    "enum": ["off", "messages", "verbose"],
+                    "description": "Traces the communication between VS Code and the language server"
+                },
+                "pydance.excludePatterns": {
+                    "type": "array",
+                    "default": [],
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Glob patterns for directories to exclude from indexing"
                 }
             }
         }

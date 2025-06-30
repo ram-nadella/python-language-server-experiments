@@ -16,9 +16,11 @@ export function activate(context: vscode.ExtensionContext) {
   const serverPath = context.asAbsolutePath(path.join("pylight"));
   outputChannel.appendLine(`Server path: ${serverPath}`);
 
-  // Get the parser configuration
+  // Get configuration
   const config = vscode.workspace.getConfiguration("pydance");
   const parser = config.get<string>("parser", "ruff");
+  const traceLevel = config.get<string>("trace.server", "off");
+  const excludePatterns = config.get<string[]>("excludePatterns", []);
   outputChannel.appendLine(`Using parser: ${parser}`);
   // If the extension is launched in debug mode then the debug server options are used
   const serverOptions: ServerOptions = {
@@ -30,19 +32,10 @@ export function activate(context: vscode.ExtensionContext) {
   const clientOptions: LanguageClientOptions = {
     // Register the server for Python documents
     documentSelector: [{ scheme: "file", language: "python" }],
-    synchronize: {
-      // Notify the server about file changes to Python files in the workspace
-      fileEvents: vscode.workspace.createFileSystemWatcher(
-        "**/*.py",
-        false,
-        true,
-        true
-      ), // Ignore changes in .venv
-    },
     outputChannel: outputChannel,
     // traceOutputChannel: outputChannel,
     initializationOptions: {
-      excludePatterns: ["**/.venv/**", "**/venv/**", "**/.env/**", "**/env/**"],
+      excludePatterns: excludePatterns,
     },
   };
 
@@ -55,9 +48,13 @@ export function activate(context: vscode.ExtensionContext) {
     clientOptions
   );
 
-  // verbose logging of the LSP client's interactions with the server
-  // turn off when packaging the extension (make it configurable)
-  client.setTrace(Trace.Verbose);
+  // Set trace level based on configuration
+  const traceMap: { [key: string]: Trace } = {
+    off: Trace.Off,
+    messages: Trace.Messages,
+    verbose: Trace.Verbose,
+  };
+  client.setTrace(traceMap[traceLevel] || Trace.Off);
 
   outputChannel.appendLine("Starting language client...");
   // Start the client. This will also launch the server
