@@ -16,10 +16,15 @@ export function activate(context: vscode.ExtensionContext) {
   const serverPath = context.asAbsolutePath(path.join("pylight"));
   outputChannel.appendLine(`Server path: ${serverPath}`);
 
+  // Get the parser configuration
+  const config = vscode.workspace.getConfiguration("pydance");
+  const parser = config.get<string>("parser", "ruff");
+  outputChannel.appendLine(`Using parser: ${parser}`);
+
   // If the extension is launched in debug mode then the debug server options are used
   const serverOptions: ServerOptions = {
-    run: { command: serverPath, args: [] },
-    debug: { command: serverPath, args: [] },
+    run: { command: serverPath, args: ["--parser", parser] },
+    debug: { command: serverPath, args: ["--parser", parser] },
   };
 
   // Options to control the language client
