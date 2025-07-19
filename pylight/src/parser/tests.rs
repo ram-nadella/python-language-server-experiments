@@ -125,4 +125,37 @@ class MyClass:
             .iter()
             .any(|s| s.name == "value" && s.kind == SymbolKind::Method));
     }
+
+    #[test]
+    fn test_column_positions() {
+        use crate::parser::{create_parser, ParserBackend};
+        
+        // Test both parser backends
+        for backend in [ParserBackend::TreeSitter, ParserBackend::Ruff] {
+            let parser = create_parser(backend).unwrap();
+            
+            // Test function column position
+            let code = "def my_func():\n    pass";
+            let symbols = parser.parse_file(Path::new("test.py"), code).unwrap();
+            assert_eq!(symbols.len(), 1);
+            assert_eq!(symbols[0].name, "my_func");
+            assert_eq!(symbols[0].line, 1);
+            assert_eq!(symbols[0].column, 4, "Function name should start at column 4 (0-based) for parser {:?}", backend);
+            
+            // Test class column position
+            let code = "class MyClass:\n    pass";
+            let symbols = parser.parse_file(Path::new("test.py"), code).unwrap();
+            assert_eq!(symbols.len(), 1);
+            assert_eq!(symbols[0].name, "MyClass");
+            assert_eq!(symbols[0].line, 1);
+            assert_eq!(symbols[0].column, 6, "Class name should start at column 6 (0-based) for parser {:?}", backend);
+            
+            // Test indented method column position
+            let code = "class MyClass:\n    def my_method(self):\n        pass";
+            let symbols = parser.parse_file(Path::new("test.py"), code).unwrap();
+            let method = symbols.iter().find(|s| s.name == "my_method").unwrap();
+            assert_eq!(method.line, 2);
+            assert_eq!(method.column, 8, "Method name should start at column 8 (0-based) for parser {:?}", backend);
+        }
+    }
 }
