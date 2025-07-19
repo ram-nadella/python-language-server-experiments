@@ -101,8 +101,8 @@ impl<'a> SymbolExtractor<'a> {
         let location = self
             .source_code
             .source_location(offset.into(), ruff_source_file::PositionEncoding::Utf8);
-        // Both line and column are 1-based in Ruff
-        (location.line.get(), location.character_offset.get())
+        // Ruff returns 1-based line and column, but we need 0-based column for compatibility
+        (location.line.get(), location.character_offset.get() - 1)
     }
 }
 
