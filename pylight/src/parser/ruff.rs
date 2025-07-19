@@ -114,8 +114,8 @@ impl<'a> Visitor<'a> for SymbolExtractor<'a> {
                 // Note: func_def.is_async is available to check if it's async
                 let kind = self.determine_function_kind();
                 let container = self.build_container_name();
-                // Use the name's range to get the line of the actual 'def' keyword
-                let (line, column) = self.get_line_column(func_def.name.range.start().to_u32());
+                // Use the function definition's range to get the position of the 'def' keyword
+                let (line, column) = self.get_line_column(func_def.range.start().to_u32());
 
                 // Get module name from file path
                 let module_path = self
@@ -144,8 +144,8 @@ impl<'a> Visitor<'a> for SymbolExtractor<'a> {
                 let name_str = class_def.name.to_string();
                 let kind = self.determine_class_kind();
                 let container = self.build_container_name();
-                // Use the name's range to get the line of the actual 'class' keyword
-                let (line, column) = self.get_line_column(class_def.name.range.start().to_u32());
+                // Use the class definition's range to get the position of the 'class' keyword
+                let (line, column) = self.get_line_column(class_def.range.start().to_u32());
 
                 // Get module name from file path
                 let module_path = self
