@@ -19,7 +19,7 @@ clap = { version = "4.5.2", features = ["derive"] }
 anyhow = "1.0.80"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-tokio = { version = "1.36", features = ["full"] }
+tokio = { version = "1.44", features = ["full"] }
 num_cpus = "1.16"
 async-walkdir = "0.2"
 futures-lite = "1.13"
