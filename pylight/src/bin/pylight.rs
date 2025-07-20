@@ -103,7 +103,7 @@ fn run_standalone(
                 "{:2}. {} ({}:{})",
                 i + 1,
                 result.symbol.name,
-                result.symbol.file_path.display(),
+                result.symbol.file_path.as_ref(),
                 result.symbol.line
             );
         }

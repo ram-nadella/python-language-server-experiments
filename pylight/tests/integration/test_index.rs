@@ -10,11 +10,17 @@ fn test_index_add_file() {
         Symbol::new(
             "func1".to_string(),
             SymbolKind::Function,
-            path.clone(),
+            path.to_string_lossy().into_owned(),
             1,
             0,
         ),
-        Symbol::new("Class1".to_string(), SymbolKind::Class, path.clone(), 10, 0),
+        Symbol::new(
+            "Class1".to_string(),
+            SymbolKind::Class,
+            path.to_string_lossy().into_owned(),
+            10,
+            0,
+        ),
     ];
 
     index.add_file(path.clone(), symbols.clone()).unwrap();
@@ -35,7 +41,7 @@ fn test_index_update_file() {
     let symbols_v1 = vec![Symbol::new(
         "old_func".to_string(),
         SymbolKind::Function,
-        path.clone(),
+        path.to_string_lossy().into_owned(),
         1,
         0,
     )];
@@ -46,14 +52,14 @@ fn test_index_update_file() {
         Symbol::new(
             "new_func".to_string(),
             SymbolKind::Function,
-            path.clone(),
+            path.to_string_lossy().into_owned(),
             1,
             0,
         ),
         Symbol::new(
             "NewClass".to_string(),
             SymbolKind::Class,
-            path.clone(),
+            path.to_string_lossy().into_owned(),
             10,
             0,
         ),
@@ -80,14 +86,14 @@ fn test_index_remove_file() {
     let symbols1 = vec![Symbol::new(
         "func1".to_string(),
         SymbolKind::Function,
-        path1.clone(),
+        path1.to_string_lossy().into_owned(),
         1,
         0,
     )];
     let symbols2 = vec![Symbol::new(
         "func2".to_string(),
         SymbolKind::Function,
-        path2.clone(),
+        path2.to_string_lossy().into_owned(),
         1,
         0,
     )];
@@ -115,12 +121,12 @@ fn test_index_clear() {
     let symbols = vec![Symbol::new(
         "func1".to_string(),
         SymbolKind::Function,
-        path.clone(),
+        path.to_string_lossy().into_owned(),
         1,
         0,
     )];
 
-    index.add_file(path, symbols).unwrap();
+    index.add_file(path.clone(), symbols).unwrap();
     assert_eq!(index.get_all_symbols().len(), 1);
 
     index.clear();

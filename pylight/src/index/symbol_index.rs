@@ -1,6 +1,7 @@
 //! Symbol index implementation
 
 use crate::parser::{create_parser, ParserBackend};
+use crate::string_cache::StringCache;
 use crate::{Result, Symbol};
 use parking_lot::RwLock;
 use rayon::prelude::*;
@@ -13,14 +14,8 @@ use super::files;
 pub struct SymbolIndex {
     symbols: Arc<RwLock<HashMap<PathBuf, Vec<Arc<Symbol>>>>>,
     all_symbols: Arc<RwLock<Vec<Arc<Symbol>>>>,
-    file_metadata: Arc<RwLock<HashMap<PathBuf, FileMetadata>>>,
     parser_backend: ParserBackend,
-}
-
-#[derive(Debug, Clone)]
-pub struct FileMetadata {
-    pub last_modified: std::time::SystemTime,
-    pub symbol_count: usize,
+    string_cache: StringCache,
 }
 
 impl SymbolIndex {
@@ -28,8 +23,8 @@ impl SymbolIndex {
         Self {
             symbols: Arc::new(RwLock::new(HashMap::new())),
             all_symbols: Arc::new(RwLock::new(Vec::new())),
-            file_metadata: Arc::new(RwLock::new(HashMap::new())),
             parser_backend,
+            string_cache: StringCache::new(),
         }
     }
 
@@ -44,28 +39,22 @@ impl SymbolIndex {
 
         let mut file_symbols = self.symbols.write();
         let mut all = self.all_symbols.write();
-        let mut metadata = self.file_metadata.write();
 
         // Remove old symbols for this file if any
         if let Some(_old_symbols) = file_symbols.get(&canonical_path) {
-            all.retain(|s| s.file_path != canonical_path);
+            all.retain(|s| s.file_path.as_ref() != canonical_path.to_string_lossy().as_ref());
         }
 
-        // Update metadata
-        if let Ok(file_metadata) = std::fs::metadata(&canonical_path) {
-            if let Ok(modified) = file_metadata.modified() {
-                metadata.insert(
-                    canonical_path.clone(),
-                    FileMetadata {
-                        last_modified: modified,
-                        symbol_count: symbols.len(),
-                    },
-                );
-            }
-        }
-
-        // Convert symbols to Arc
-        let arc_symbols: Vec<Arc<Symbol>> = symbols.into_iter().map(Arc::new).collect();
+        // Convert symbols to Arc and intern strings
+        let arc_symbols: Vec<Arc<Symbol>> = symbols
+            .into_iter()
+            .map(|mut symbol| {
+                // Intern file_path and module_path
+                symbol.file_path = self.string_cache.intern(symbol.file_path.as_ref());
+                symbol.module_path = self.string_cache.intern(symbol.module_path.as_ref());
+                Arc::new(symbol)
+            })
+            .collect();
 
         // Add new symbols
         all.extend(arc_symbols.clone());
@@ -80,11 +69,9 @@ impl SymbolIndex {
 
         let mut file_symbols = self.symbols.write();
         let mut all = self.all_symbols.write();
-        let mut metadata = self.file_metadata.write();
 
         file_symbols.remove(&canonical_path);
-        all.retain(|s| s.file_path != canonical_path);
-        metadata.remove(&canonical_path);
+        all.retain(|s| s.file_path.as_ref() != canonical_path.to_string_lossy().as_ref());
 
         Ok(())
     }
@@ -110,7 +97,6 @@ impl SymbolIndex {
     pub fn clear(&self) {
         self.symbols.write().clear();
         self.all_symbols.write().clear();
-        self.file_metadata.write().clear();
     }
 
     /// Get the total number of indexed files
@@ -124,12 +110,6 @@ impl SymbolIndex {
         self.symbols.read().contains_key(&canonical_path)
     }
 
-    /// Get metadata for a file
-    pub fn get_file_metadata(&self, path: &Path) -> Option<FileMetadata> {
-        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        self.file_metadata.read().get(&canonical_path).cloned()
-    }
-
     /// Update specific files without full re-index
     pub fn update_files_batch(
         &self,
@@ -137,7 +117,6 @@ impl SymbolIndex {
     ) -> Result<(usize, usize)> {
         let mut file_symbols = self.symbols.write();
         let mut all = self.all_symbols.write();
-        let mut metadata = self.file_metadata.write();
 
         let mut updated_files = 0;
         let mut total_symbols = 0;
@@ -145,24 +124,19 @@ impl SymbolIndex {
         for (path, symbols) in updates {
             // Remove old symbols for this file if any
             if file_symbols.contains_key(&path) {
-                all.retain(|s| s.file_path != path);
+                all.retain(|s| s.file_path.as_ref() != path.to_string_lossy().as_ref());
             }
 
-            // Update metadata
-            if let Ok(file_metadata) = std::fs::metadata(&path) {
-                if let Ok(modified) = file_metadata.modified() {
-                    metadata.insert(
-                        path.clone(),
-                        FileMetadata {
-                            last_modified: modified,
-                            symbol_count: symbols.len(),
-                        },
-                    );
-                }
-            }
-
-            // Convert symbols to Arc
-            let arc_symbols: Vec<Arc<Symbol>> = symbols.into_iter().map(Arc::new).collect();
+            // Convert symbols to Arc and intern strings
+            let arc_symbols: Vec<Arc<Symbol>> = symbols
+                .into_iter()
+                .map(|mut symbol| {
+                    // Intern file_path and module_path
+                    symbol.file_path = self.string_cache.intern(symbol.file_path.as_ref());
+                    symbol.module_path = self.string_cache.intern(symbol.module_path.as_ref());
+                    Arc::new(symbol)
+                })
+                .collect();
             total_symbols += arc_symbols.len();
 
             // Add new symbols
@@ -179,45 +153,36 @@ impl SymbolIndex {
         // Acquire all locks in a consistent order to avoid deadlocks
         let mut symbols = self.symbols.write();
         let mut all_symbols = self.all_symbols.write();
-        let mut metadata = self.file_metadata.write();
 
         let new_symbols = new_index.symbols.read();
         let new_all = new_index.all_symbols.read();
-        let new_metadata = new_index.file_metadata.read();
 
         // Swap the contents
         *symbols = new_symbols.clone();
         *all_symbols = new_all.clone();
-        *metadata = new_metadata.clone();
     }
 
     /// Add multiple files in a single batch operation to minimize lock contention
     pub fn add_files_batch(&self, files: Vec<(PathBuf, Vec<Symbol>)>) -> Result<()> {
         let mut file_symbols = self.symbols.write();
         let mut all = self.all_symbols.write();
-        let mut metadata = self.file_metadata.write();
 
         for (path, symbols) in files {
             // Remove old symbols for this file if any
             if file_symbols.contains_key(&path) {
-                all.retain(|s| s.file_path != path);
+                all.retain(|s| s.file_path.as_ref() != path.to_string_lossy().as_ref());
             }
 
-            // Update metadata
-            if let Ok(file_metadata) = std::fs::metadata(&path) {
-                if let Ok(modified) = file_metadata.modified() {
-                    metadata.insert(
-                        path.clone(),
-                        FileMetadata {
-                            last_modified: modified,
-                            symbol_count: symbols.len(),
-                        },
-                    );
-                }
-            }
-
-            // Convert symbols to Arc
-            let arc_symbols: Vec<Arc<Symbol>> = symbols.into_iter().map(Arc::new).collect();
+            // Convert symbols to Arc and intern strings
+            let arc_symbols: Vec<Arc<Symbol>> = symbols
+                .into_iter()
+                .map(|mut symbol| {
+                    // Intern file_path and module_path
+                    symbol.file_path = self.string_cache.intern(symbol.file_path.as_ref());
+                    symbol.module_path = self.string_cache.intern(symbol.module_path.as_ref());
+                    Arc::new(symbol)
+                })
+                .collect();
 
             // Add new symbols
             all.extend(arc_symbols.clone());

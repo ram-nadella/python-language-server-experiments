@@ -53,7 +53,7 @@ pub fn handle_workspace_symbol(
             .take(200) // Limit results
             .filter_map(|result| {
                 let symbol = &result.symbol;
-                let uri = url::Url::from_file_path(&symbol.file_path).ok()?;
+                let uri = url::Url::from_file_path(symbol.file_path.as_ref()).ok()?;
 
                 #[allow(deprecated)]
                 Some(SymbolInformation {

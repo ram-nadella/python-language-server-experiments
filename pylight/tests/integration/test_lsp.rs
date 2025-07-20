@@ -17,14 +17,14 @@ fn test_lsp_handler() {
         Symbol::new(
             "test_function".to_string(),
             SymbolKind::Function,
-            PathBuf::from("/test/file.py"),
+            "/test/file.py".to_string(),
             10,
             0,
         ),
         Symbol::new(
             "TestClass".to_string(),
             SymbolKind::Class,
-            PathBuf::from("/test/file.py"),
+            "/test/file.py".to_string(),
             20,
             0,
         ),
@@ -70,14 +70,14 @@ fn test_empty_query_returns_symbols() {
         Symbol::new(
             "function1".to_string(),
             SymbolKind::Function,
-            PathBuf::from("/test/file.py"),
+            "/test/file.py".to_string(),
             10,
             0,
         ),
         Symbol::new(
             "function2".to_string(),
             SymbolKind::Function,
-            PathBuf::from("/test/file.py"),
+            "/test/file.py".to_string(),
             20,
             0,
         ),
