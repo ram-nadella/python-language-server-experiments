@@ -1,5 +1,4 @@
 use pylight::{SearchEngine, Symbol, SymbolKind};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 fn create_test_symbols() -> Vec<Arc<Symbol>> {
@@ -7,35 +6,35 @@ fn create_test_symbols() -> Vec<Arc<Symbol>> {
         Arc::new(Symbol::new(
             "test_function".to_string(),
             SymbolKind::Function,
-            PathBuf::from("test.py"),
+            "test.py".to_string(),
             1,
             0,
         )),
         Arc::new(Symbol::new(
             "TestClass".to_string(),
             SymbolKind::Class,
-            PathBuf::from("test.py"),
+            "test.py".to_string(),
             10,
             0,
         )),
         Arc::new(Symbol::new(
             "another_test_func".to_string(),
             SymbolKind::Function,
-            PathBuf::from("test.py"),
+            "test.py".to_string(),
             20,
             0,
         )),
         Arc::new(Symbol::new(
             "helper_function".to_string(),
             SymbolKind::Function,
-            PathBuf::from("helper.py"),
+            "helper.py".to_string(),
             5,
             0,
         )),
         Arc::new(Symbol::new(
             "HelperClass".to_string(),
             SymbolKind::Class,
-            PathBuf::from("helper.py"),
+            "helper.py".to_string(),
             15,
             0,
         )),
@@ -43,7 +42,7 @@ fn create_test_symbols() -> Vec<Arc<Symbol>> {
             Symbol::new(
                 "test_method".to_string(),
                 SymbolKind::Method,
-                PathBuf::from("test.py"),
+                "test.py".to_string(),
                 12,
                 4,
             )
@@ -86,28 +85,28 @@ fn test_exact_match_ranks_first() {
         Arc::new(Symbol::new(
             "test".to_string(), // Exact match
             SymbolKind::Function,
-            PathBuf::from("exact.py"),
+            "exact.py".to_string(),
             1,
             0,
         )),
         Arc::new(Symbol::new(
             "test_something".to_string(), // Prefix match
             SymbolKind::Function,
-            PathBuf::from("prefix.py"),
+            "prefix.py".to_string(),
             1,
             0,
         )),
         Arc::new(Symbol::new(
             "another_test".to_string(), // Suffix match
             SymbolKind::Function,
-            PathBuf::from("suffix.py"),
+            "suffix.py".to_string(),
             1,
             0,
         )),
         Arc::new(Symbol::new(
             "TestClass".to_string(), // Different case
             SymbolKind::Class,
-            PathBuf::from("class.py"),
+            "class.py".to_string(),
             1,
             0,
         )),
@@ -198,14 +197,14 @@ fn test_case_insensitive_exact_match() {
         Arc::new(Symbol::new(
             "TestFunction".to_string(),
             SymbolKind::Function,
-            PathBuf::from("test.py"),
+            "test.py".to_string(),
             1,
             0,
         )),
         Arc::new(Symbol::new(
             "test_helper".to_string(),
             SymbolKind::Function,
-            PathBuf::from("test.py"),
+            "test.py".to_string(),
             10,
             0,
         )),

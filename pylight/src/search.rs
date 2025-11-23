@@ -127,7 +127,6 @@ impl Default for SearchEngine {
 mod tests {
     use super::*;
     use crate::symbols::SymbolKind;
-    use std::path::PathBuf;
 
     #[test]
     fn test_search_engine_creation() {
@@ -143,14 +142,14 @@ mod tests {
             Arc::new(Symbol::new(
                 "test_function".to_string(),
                 SymbolKind::Function,
-                PathBuf::from("test.py"),
+                "test.py".to_string(),
                 1,
                 0,
             )),
             Arc::new(Symbol::new(
                 "another_function".to_string(),
                 SymbolKind::Function,
-                PathBuf::from("test.py"),
+                "test.py".to_string(),
                 2,
                 0,
             )),

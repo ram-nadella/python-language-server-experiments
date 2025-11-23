@@ -7,7 +7,7 @@ use ruff_python_ast::{
 };
 use ruff_python_parser::{parse, Mode};
 use ruff_source_file::{LineIndex, SourceCode};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::r#trait::Parser;
 
@@ -33,7 +33,7 @@ enum Context {
 
 struct SymbolExtractor<'a> {
     symbols: &'a mut Vec<Symbol>,
-    file_path: PathBuf,
+    file_path: String,
     context_stack: Vec<Context>,
     source_code: SourceCode<'a, 'a>,
 }
@@ -41,7 +41,7 @@ struct SymbolExtractor<'a> {
 impl<'a> SymbolExtractor<'a> {
     fn new(
         symbols: &'a mut Vec<Symbol>,
-        file_path: PathBuf,
+        file_path: String,
         source: &'a str,
         line_index: &'a LineIndex,
     ) -> Self {
@@ -118,8 +118,7 @@ impl<'a> Visitor<'a> for SymbolExtractor<'a> {
                 let (line, column) = self.get_line_column(func_def.name.range.start().to_u32());
 
                 // Get module name from file path
-                let module_path = self
-                    .file_path
+                let module_path = std::path::Path::new(&self.file_path)
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("unknown")
@@ -148,8 +147,7 @@ impl<'a> Visitor<'a> for SymbolExtractor<'a> {
                 let (line, column) = self.get_line_column(class_def.name.range.start().to_u32());
 
                 // Get module name from file path
-                let module_path = self
-                    .file_path
+                let module_path = std::path::Path::new(&self.file_path)
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("unknown")
@@ -183,8 +181,12 @@ impl Parser for RuffParser {
             .map_err(|e| Error::Parse(format!("Ruff parse error: {e:?}")))?;
 
         let mut symbols = Vec::new();
-        let mut extractor =
-            SymbolExtractor::new(&mut symbols, file_path.to_path_buf(), source, &line_index);
+        let mut extractor = SymbolExtractor::new(
+            &mut symbols,
+            file_path.to_string_lossy().into_owned(),
+            source,
+            &line_index,
+        );
 
         match parsed.syntax() {
             Mod::Module(module) => {

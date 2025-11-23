@@ -9,6 +9,7 @@ pub mod index;
 pub mod lsp;
 pub mod parser;
 pub mod search;
+pub mod string_cache;
 pub mod symbols;
 pub mod watcher;
 

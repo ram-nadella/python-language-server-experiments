@@ -142,8 +142,7 @@ class MyClass:
             assert_eq!(symbols[0].line, 1);
             assert_eq!(
                 symbols[0].column, 4,
-                "Function name should start at column 4 (0-based) for parser {:?}",
-                backend
+                "Function name should start at column 4 (0-based) for parser {backend:?}"
             );
 
             // Test class column position
@@ -154,8 +153,7 @@ class MyClass:
             assert_eq!(symbols[0].line, 1);
             assert_eq!(
                 symbols[0].column, 6,
-                "Class name should start at column 6 (0-based) for parser {:?}",
-                backend
+                "Class name should start at column 6 (0-based) for parser {backend:?}"
             );
 
             // Test indented method column position
@@ -165,8 +163,7 @@ class MyClass:
             assert_eq!(method.line, 2);
             assert_eq!(
                 method.column, 8,
-                "Method name should start at column 8 (0-based) for parser {:?}",
-                backend
+                "Method name should start at column 8 (0-based) for parser {backend:?}"
             );
         }
     }

@@ -72,7 +72,13 @@ impl<'a> SymbolExtractor<'a> {
             _ => SymbolKind::Function,
         };
 
-        let mut symbol = Symbol::new(name.clone(), kind, self.path.clone(), line, column);
+        let mut symbol = Symbol::new(
+            name.clone(),
+            kind,
+            self.path.to_string_lossy().into_owned(),
+            line,
+            column,
+        );
 
         // Set container name if we're inside another context
         if !self.context_stack.is_empty() {
@@ -131,7 +137,13 @@ impl<'a> SymbolExtractor<'a> {
             SymbolKind::Class
         };
 
-        let mut symbol = Symbol::new(name.clone(), kind, self.path.clone(), line, column);
+        let mut symbol = Symbol::new(
+            name.clone(),
+            kind,
+            self.path.to_string_lossy().into_owned(),
+            line,
+            column,
+        );
 
         // Set container name if we're inside another context
         if !self.context_stack.is_empty() {
