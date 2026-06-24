@@ -4,32 +4,27 @@ import { runTests } from "@vscode/test-electron";
 
 async function main() {
   try {
-    // The folder containing the Extension Manifest package.json
     const extensionDevelopmentPath = path.resolve(__dirname, "../../");
-
-    // The path to test runner for integration tests
     const extensionTestsPath = path.resolve(__dirname, "./suite/index");
-
-    // The path to the test workspace - this ensures we have a proper workspace
-    const testWorkspace = path.resolve(__dirname, "../../src/testFixture");
-
+    const testWorkspace = path.resolve(
+      __dirname,
+      "../../src/testWorkspaces/multi-root.code-workspace"
+    );
     const userDataDir = path.join("/tmp", `pydance-vscode-test-${process.pid}`);
     fs.rmSync(userDataDir, { recursive: true, force: true });
 
-    console.log("Running integration tests with workspace:", testWorkspace);
+    console.log("Running multi-root integration tests with workspace:", testWorkspace);
 
-    // Download VS Code, unzip it and run the integration test
     await runTests({
       extensionDevelopmentPath,
       extensionTestsPath,
       launchArgs: [testWorkspace, "--user-data-dir", userDataDir],
-      // Set environment variable to indicate integration test mode
       extensionTestsEnv: {
         INTEGRATION_TEST: "true",
       },
     });
   } catch (err) {
-    console.error("Failed to run integration tests");
+    console.error("Failed to run multi-root integration tests");
     process.exit(1);
   }
 }

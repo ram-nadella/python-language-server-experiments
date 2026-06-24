@@ -22,27 +22,43 @@ enum UpdaterState {
 pub struct IndexUpdater {
     index: Arc<SymbolIndex>,
     state: Arc<RwLock<UpdaterState>>,
-    workspace_root: PathBuf,
-    ignore_filter: Arc<crate::file_filter::IgnoreFilter>,
+    workspace_roots: Vec<PathBuf>,
+    ignore_filters: Vec<Arc<crate::file_filter::IgnoreFilter>>,
 }
 
 impl IndexUpdater {
     pub fn new(index: Arc<SymbolIndex>, workspace_root: PathBuf) -> Self {
-        let ignore_filter = Arc::new(crate::file_filter::IgnoreFilter::new(
-            workspace_root.clone(),
-        ));
+        Self::new_multi(index, vec![workspace_root])
+    }
+
+    pub fn new_multi(index: Arc<SymbolIndex>, workspace_roots: Vec<PathBuf>) -> Self {
+        let ignore_filters = workspace_roots
+            .iter()
+            .cloned()
+            .map(crate::file_filter::IgnoreFilter::new)
+            .map(Arc::new)
+            .collect();
         Self {
             index,
             state: Arc::new(RwLock::new(UpdaterState::Idle)),
-            workspace_root,
-            ignore_filter,
+            workspace_roots,
+            ignore_filters,
         }
+    }
+
+    fn should_ignore(&self, path: &Path) -> bool {
+        self.workspace_roots
+            .iter()
+            .zip(&self.ignore_filters)
+            .find(|(root, _)| path.starts_with(root))
+            .map(|(_, filter)| filter.should_ignore(path))
+            .unwrap_or(false)
     }
 
     /// Process a single file update
     fn process_file_update(&self, path: &Path) -> Result<()> {
         // Check if the file should be ignored
-        if self.ignore_filter.should_ignore(path) {
+        if self.should_ignore(path) {
             debug!("Ignoring file update for: {}", path.display());
             return Ok(());
         }
@@ -90,8 +106,10 @@ impl IndexUpdater {
         // Create a new temporary index with the same parser backend
         let new_index = Arc::new(SymbolIndex::new(self.index.parser_backend()));
 
-        // Index the workspace into the new index
-        new_index.clone().index_workspace(&self.workspace_root)?;
+        // Index each workspace folder into the new index
+        for root in &self.workspace_roots {
+            new_index.clone().index_workspace(root)?;
+        }
 
         // Atomically swap the indices
         self.index.swap_index(&new_index);
@@ -157,16 +175,16 @@ impl FileEventHandler for IndexUpdater {
                 // Clone what we need for the async task
                 let index = self.index.clone();
                 let state = self.state.clone();
-                let workspace_root = self.workspace_root.clone();
-                let ignore_filter = self.ignore_filter.clone();
+                let workspace_roots = self.workspace_roots.clone();
+                let ignore_filters = self.ignore_filters.clone();
 
                 // Use rayon's thread pool instead of spawning new threads
                 rayon::spawn(move || {
                     let updater = IndexUpdater {
                         index,
                         state,
-                        workspace_root,
-                        ignore_filter,
+                        workspace_roots,
+                        ignore_filters,
                     };
                     updater.handle_event_internal(event);
                 });
@@ -187,7 +205,7 @@ impl FileEventHandler for IndexUpdater {
         }
 
         // Check if the file should be ignored
-        let should_ignore = self.ignore_filter.should_ignore(path);
+        let should_ignore = self.should_ignore(path);
 
         if should_ignore {
             debug!("Ignoring watch for: {}", path.display());
@@ -197,7 +215,10 @@ impl FileEventHandler for IndexUpdater {
     }
 
     fn workspace_root(&self) -> &Path {
-        &self.workspace_root
+        self.workspace_roots
+            .first()
+            .map(PathBuf::as_path)
+            .unwrap_or_else(|| Path::new("."))
     }
 }
 

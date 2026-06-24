@@ -1,6 +1,5 @@
 //! File system watcher with debouncing support
 
-use crate::file_filter::IgnoreFilter;
 use crate::Result;
 use crossbeam_channel::{self, Receiver, RecvTimeoutError, Sender};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
@@ -9,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use tracing::{debug, info};
+use tracing::info;
 
 /// Configuration for the file watcher
 #[derive(Debug, Clone)]
@@ -50,7 +49,6 @@ pub struct FileWatcher {
     _event_handler: Arc<dyn FileEventHandler + Send + Sync>,
     _shutdown_tx: Sender<()>,
     _debouncer_handle: Option<thread::JoinHandle<()>>,
-    _ignore_filter: Arc<IgnoreFilter>,
 }
 
 /// Trait for handling file system events
@@ -74,11 +72,6 @@ impl FileWatcher {
         let (event_tx, event_rx) = crossbeam_channel::unbounded::<notify::Event>();
         let (shutdown_tx, shutdown_rx) = crossbeam_channel::bounded::<()>(1);
 
-        // Create the ignore filter
-        let ignore_filter = Arc::new(IgnoreFilter::new(
-            event_handler.workspace_root().to_path_buf(),
-        ));
-
         // Create the notify watcher
         let watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
             if let Ok(event) = res {
@@ -90,15 +83,8 @@ impl FileWatcher {
         // Spawn the debouncer thread
         let event_handler_clone = event_handler.clone();
         let config_clone = config.clone();
-        let ignore_filter_clone = ignore_filter.clone();
         let handle = thread::spawn(move || {
-            Self::debouncer_thread(
-                config_clone,
-                event_handler_clone,
-                event_rx,
-                shutdown_rx,
-                ignore_filter_clone,
-            );
+            Self::debouncer_thread(config_clone, event_handler_clone, event_rx, shutdown_rx);
         });
 
         Ok(Self {
@@ -107,7 +93,6 @@ impl FileWatcher {
             _event_handler: event_handler,
             _shutdown_tx: shutdown_tx,
             _debouncer_handle: Some(handle),
-            _ignore_filter: ignore_filter,
         })
     }
 
@@ -117,7 +102,6 @@ impl FileWatcher {
         event_handler: Arc<dyn FileEventHandler + Send + Sync>,
         event_rx: Receiver<notify::Event>,
         shutdown_rx: Receiver<()>,
-        ignore_filter: Arc<IgnoreFilter>,
     ) {
         let mut pending_events = HashSet::new();
         let mut last_event_time = Instant::now();
@@ -148,12 +132,6 @@ impl FileWatcher {
                 Ok(event) => {
                     // Process the event
                     for path in event.paths {
-                        // Use ignore filter to check if we should process this path
-                        if ignore_filter.should_ignore(&path) {
-                            debug!("Ignoring event for: {}", path.display());
-                            continue;
-                        }
-
                         match event.kind {
                             EventKind::Create(_) | EventKind::Modify(_) => {
                                 if event_handler.should_watch(&path) {

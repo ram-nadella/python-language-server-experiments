@@ -2,7 +2,7 @@
     "name": "pydance",
     "displayName": "Pydance",
     "description": "Python language server that provides high-performance workspace symbol search for large Python codebases",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "publisher": "ToughType",
     "icon": "images/pydance-logo.png",
     "repository": {
@@ -20,6 +20,12 @@
     ],
     "main": "./out/extension.js",
     "contributes": {
+        "commands": [
+            {
+                "command": "pydance.restartServer",
+                "title": "Pydance: Restart Server"
+            }
+        ],
         "configuration": {
             "title": "Pydance",
             "properties": {
@@ -62,6 +68,7 @@
         "pretest": "npm run compile:tests",
         "test": "node ./out/test/runTest.js",
         "test:integration": "npm run compile:tests && node ./out/test/runIntegrationTest.js",
+        "test:integration:multi-root": "npm run compile:tests && node ./out/test/runMultiRootIntegrationTest.js",
         "lint": "eslint src --ext ts",
         "lint:fix": "eslint src --ext ts --fix",
         "format": "prettier --write \"src/**/*.ts\"",

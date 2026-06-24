@@ -1,0 +1,6 @@
+{
+  "folders": [
+    { "path": "../testFixture" },
+    { "path": "../testFixtureSecond" }
+  ]
+}

@@ -82,34 +82,11 @@ suite("Extension Test Suite", () => {
   });
 
   suite("Integration Tests", () => {
+    setup(function () {
+      skipUnlessIntegrationReady(this);
+    });
+
     test("Should provide workspace symbols with real language server", async function () {
-      // Skip if not running in integration test mode
-      if (process.env.INTEGRATION_TEST !== "true") {
-        console.log("Not in integration test mode, skipping");
-        this.skip();
-      }
-
-      // First check if we have a workspace folder
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders || workspaceFolders.length === 0) {
-        console.log("No workspace folder found, skipping integration test");
-        this.skip();
-      }
-
-      // Check if pylight binary exists
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const fs = require("fs");
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const path = require("path");
-      const extensionPath =
-        vscode.extensions.getExtension("ToughType.pydance")!.extensionPath;
-      const pylightPath = path.join(extensionPath, "pylight");
-
-      if (!fs.existsSync(pylightPath)) {
-        console.log("pylight binary not found, skipping integration test");
-        this.skip();
-      }
-
       await testWorkspaceSymbols(docUri, [
         new vscode.SymbolInformation(
           "TestClass",
@@ -173,8 +150,99 @@ suite("Extension Test Suite", () => {
         ),
       ]);
     });
+
+    test("Should index all folders in a multi-root workspace", async function () {
+      const repoTwoFolder = secondWorkspaceFolder();
+      if (!repoTwoFolder) {
+        console.log("No second workspace folder found, skipping multi-root test");
+        this.skip();
+      }
+
+      await activate(docUri);
+      const symbols = await waitForWorkspaceSymbols("repo_two", 2);
+      const names = symbols.map((symbol) => symbol.name);
+
+      assert.ok(
+        names.includes("repo_two_function"),
+        "repo_two_function should be indexed"
+      );
+      assert.ok(
+        names.includes("repo_two_helper"),
+        "repo_two_helper should be indexed"
+      );
+      assert.ok(
+        symbols.every((symbol) =>
+          symbol.location.uri.fsPath.startsWith(repoTwoFolder!.uri.fsPath)
+        ),
+        "repo_two results should come from the second workspace folder"
+      );
+    });
+
+    test("Should expose a restart command that reindexes", async function () {
+      await activate(docUri);
+      await vscode.commands.executeCommand("pydance.restartServer");
+
+      const symbols = await waitForWorkspaceSymbols("test", 4);
+      assert.ok(
+        symbols.some((symbol) => symbol.name === "test_function"),
+        "Expected test_function after restart"
+      );
+    });
   });
 });
+
+function secondWorkspaceFolder() {
+  return vscode.workspace.workspaceFolders?.find(
+    (folder) => folder.name === "testFixtureSecond"
+  );
+}
+
+function skipUnlessIntegrationReady(context: Mocha.Context) {
+  if (process.env.INTEGRATION_TEST !== "true") {
+    console.log("Not in integration test mode, skipping");
+    context.skip();
+  }
+
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    console.log("No workspace folder found, skipping integration test");
+    context.skip();
+  }
+
+  // Check if pylight binary exists
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const fs = require("fs");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const path = require("path");
+  const extensionPath =
+    vscode.extensions.getExtension("ToughType.pydance")!.extensionPath;
+  const pylightPath = path.join(extensionPath, "pylight");
+
+  if (!fs.existsSync(pylightPath)) {
+    console.log("pylight binary not found, skipping integration test");
+    context.skip();
+  }
+}
+
+async function waitForWorkspaceSymbols(query: string, minCount: number) {
+  const deadline = Date.now() + 10_000;
+  let symbols: vscode.SymbolInformation[] = [];
+
+  while (Date.now() < deadline) {
+    symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
+      "vscode.executeWorkspaceSymbolProvider",
+      query
+    );
+    if (symbols.length >= minCount) {
+      return symbols;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  assert.fail(
+    `Expected at least ${minCount} symbols for ${query}, found ${symbols.length}`
+  );
+}
 
 async function testWorkspaceSymbols(
   docUri: vscode.Uri,

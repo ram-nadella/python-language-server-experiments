@@ -16,9 +16,33 @@ pub struct LspServer {
     connection: Connection,
     index: Arc<SymbolIndex>,
     search_engine: Arc<SearchEngine>,
-    workspace_root: Option<PathBuf>,
+    workspace_roots: Vec<PathBuf>,
     cancelled_requests: Arc<Mutex<HashSet<RequestId>>>,
     _file_watcher: Option<FileWatcher>,
+}
+
+fn uri_to_path(uri: &lsp_types::Uri) -> Option<PathBuf> {
+    url::Url::parse(uri.as_str()).ok()?.to_file_path().ok()
+}
+
+fn workspace_roots_from_initialize_params(params: &InitializeParams) -> Vec<PathBuf> {
+    if let Some(folders) = &params.workspace_folders {
+        let roots: Vec<PathBuf> = folders
+            .iter()
+            .filter_map(|folder| uri_to_path(&folder.uri))
+            .collect();
+        if !roots.is_empty() {
+            return roots;
+        }
+    }
+
+    #[allow(deprecated)]
+    params
+        .root_uri
+        .as_ref()
+        .and_then(uri_to_path)
+        .into_iter()
+        .collect()
 }
 
 impl LspServer {
@@ -29,7 +53,7 @@ impl LspServer {
             connection,
             index: Arc::new(SymbolIndex::new(parser_backend)),
             search_engine: Arc::new(SearchEngine::new()),
-            workspace_root: None,
+            workspace_roots: Vec::new(),
             cancelled_requests: Arc::new(Mutex::new(HashSet::new())),
             _file_watcher: None,
         })
@@ -47,53 +71,53 @@ impl LspServer {
             .initialize(serde_json::to_value(server_capabilities).unwrap())
             .map_err(|e| Error::Lsp(format!("Failed to initialize: {e}")))?;
 
-        // Extract workspace root
+        // Extract all workspace roots VS Code sends for multi-root workspaces.
         if let Ok(params) = serde_json::from_value::<InitializeParams>(initialization_params) {
-            #[allow(deprecated)]
-            if let Some(root_uri) = params.root_uri {
-                if let Ok(url) = url::Url::parse(root_uri.as_str()) {
-                    if let Ok(path) = url.to_file_path() {
-                        self.workspace_root = Some(path.clone());
+            self.workspace_roots = workspace_roots_from_initialize_params(&params);
 
-                        // Start background indexing
-                        let index = self.index.clone();
-                        let root = path.clone();
-                        let root_for_watcher = path.clone();
+            if !self.workspace_roots.is_empty() {
+                let roots = self.workspace_roots.clone();
+                let index = self.index.clone();
 
-                        // Create the index updater and file watcher
-                        let updater = Arc::new(IndexUpdater::new(
-                            self.index.clone(),
-                            root_for_watcher.clone(),
-                        ));
-                        let watcher_config = WatcherConfig::default();
+                // Create one updater/watcher and subscribe it to every workspace folder.
+                let updater = Arc::new(IndexUpdater::new_multi(self.index.clone(), roots.clone()));
+                let watcher_config = WatcherConfig::default();
 
-                        match FileWatcher::new(watcher_config, updater) {
-                            Ok(mut watcher) => {
-                                // Start watching the workspace
-                                if let Err(e) = watcher.watch(&root_for_watcher) {
-                                    tracing::error!("Failed to start file watcher: {}", e);
-                                } else {
-                                    tracing::info!(
-                                        "File watcher started for workspace: {}",
-                                        root_for_watcher.display()
-                                    );
-                                    self._file_watcher = Some(watcher);
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to create file watcher: {}", e);
+                match FileWatcher::new(watcher_config, updater) {
+                    Ok(mut watcher) => {
+                        let mut watching = false;
+                        for root in &roots {
+                            if let Err(e) = watcher.watch(root) {
+                                tracing::error!(
+                                    "Failed to start file watcher for {}: {}",
+                                    root.display(),
+                                    e
+                                );
+                            } else {
+                                watching = true;
+                                tracing::info!(
+                                    "File watcher started for workspace: {}",
+                                    root.display()
+                                );
                             }
                         }
-
-                        thread::spawn(move || {
-                            if let Err(e) = index.index_workspace(&root) {
-                                tracing::error!("Failed to index workspace: {}", e);
-                            } else {
-                                tracing::info!("Initial workspace indexing completed");
-                            }
-                        });
+                        if watching {
+                            self._file_watcher = Some(watcher);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to create file watcher: {}", e);
                     }
                 }
+
+                thread::spawn(move || {
+                    for root in &roots {
+                        if let Err(e) = index.clone().index_workspace(root) {
+                            tracing::error!("Failed to index workspace {}: {}", root.display(), e);
+                        }
+                    }
+                    tracing::info!("Initial workspace indexing completed");
+                });
             }
         }
 
@@ -242,5 +266,46 @@ impl LspServer {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn initialize_params_use_all_workspace_folders() {
+        let params: InitializeParams = serde_json::from_value(json!({
+            "processId": null,
+            "rootUri": "file:///top",
+            "capabilities": {},
+            "workspaceFolders": [
+                { "uri": "file:///repo-a", "name": "repo-a" },
+                { "uri": "file:///repo-b", "name": "repo-b" }
+            ]
+        }))
+        .unwrap();
+
+        let roots = workspace_roots_from_initialize_params(&params);
+        assert_eq!(
+            roots,
+            vec![PathBuf::from("/repo-a"), PathBuf::from("/repo-b")]
+        );
+    }
+
+    #[test]
+    fn initialize_params_fall_back_to_root_uri() {
+        let params: InitializeParams = serde_json::from_value(json!({
+            "processId": null,
+            "rootUri": "file:///top",
+            "capabilities": {}
+        }))
+        .unwrap();
+
+        assert_eq!(
+            workspace_roots_from_initialize_params(&params),
+            vec![PathBuf::from("/top")]
+        );
     }
 }
