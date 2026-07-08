@@ -227,13 +227,20 @@ impl SymbolIndex {
         Ok(())
     }
 
-    /// Parse and index a list of Python files in parallel
+    /// Parse and index a list of Python files in parallel with optional progress tracking
     /// Returns (number of files parsed, total symbols, elapsed time)
-    pub fn parse_and_index_files(
+    pub fn parse_and_index_files_with_progress<F>(
         self: Arc<Self>,
         python_files: Vec<PathBuf>,
-    ) -> Result<(usize, usize, std::time::Duration)> {
+        progress_callback: F,
+    ) -> Result<(usize, usize, std::time::Duration)>
+    where
+        F: Fn(usize, usize) + Send + Sync,
+    {
         let start_time = std::time::Instant::now();
+        let total_files = python_files.len();
+        let processed_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let progress_callback = Arc::new(progress_callback);
 
         // Process files in parallel and collect all results
         let all_file_symbols: Vec<(PathBuf, Vec<Symbol>)> = python_files
@@ -256,7 +263,7 @@ impl SymbolIndex {
                 };
 
                 // Read and parse the file
-                match std::fs::read_to_string(path) {
+                let result = match std::fs::read_to_string(path) {
                     Ok(content) => match parser.parse_file(path, &content) {
                         Ok(symbols) => {
                             tracing::debug!(
@@ -273,16 +280,18 @@ impl SymbolIndex {
                         }
                     },
                     Err(e) => {
-                        // Only warn for errors other than "file not found" since that's expected
-                        // during rapid file system changes (e.g., git operations)
-                        if e.kind() != std::io::ErrorKind::NotFound {
-                            tracing::warn!("Failed to read {}: {}", path.display(), e);
-                        } else {
+                        if e.kind() == std::io::ErrorKind::NotFound {
                             tracing::debug!("File no longer exists: {}", path.display());
                         }
                         None
                     }
-                }
+                };
+
+                // Update progress counter and call callback
+                let current = processed_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                progress_callback(current, total_files);
+
+                result
             })
             .collect();
 
@@ -301,20 +310,48 @@ impl SymbolIndex {
         Ok((file_count, total_symbols, elapsed))
     }
 
+    /// Parse and index a list of Python files in parallel
+    /// Returns (number of files parsed, total symbols, elapsed time)
+    pub fn parse_and_index_files(
+        self: Arc<Self>,
+        python_files: Vec<PathBuf>,
+    ) -> Result<(usize, usize, std::time::Duration)> {
+        // Call the progress version with a no-op callback
+        self.parse_and_index_files_with_progress(python_files, |_, _| {})
+    }
+
     /// Index all Python files in a workspace directory
     pub fn index_workspace(self: Arc<Self>, root: &PathBuf) -> Result<()> {
+        // Call the progress version with a no-op callback
+        self.index_workspace_with_progress(root, |_, _| {})
+    }
+
+    /// Index all Python files in a workspace directory with progress callback
+    pub fn index_workspace_with_progress<F>(
+        self: Arc<Self>,
+        root: &PathBuf,
+        progress_callback: F,
+    ) -> Result<()>
+    where
+        F: Fn(usize, usize) + Send + Sync,
+    {
         tracing::info!("Starting workspace indexing for: {}", root.display());
 
         // Collect all Python files first
         let file_collection_start = std::time::Instant::now();
         let python_files = files::collect_python_files(root);
         let file_collection_elapsed = file_collection_start.elapsed();
+        let total_files = python_files.len();
+
         tracing::info!(
             "Found {} Python files to index in {:.2}s (using {} threads)",
-            python_files.len(),
+            total_files,
             file_collection_elapsed.as_secs_f64(),
             num_cpus::get().saturating_sub(1).max(1)
         );
+
+        // Call progress callback for file discovery phase
+        progress_callback(0, total_files);
 
         // Log thread pool info
         tracing::info!(
@@ -322,8 +359,9 @@ impl SymbolIndex {
             rayon::current_num_threads()
         );
 
-        // Parse and index files
-        let (file_count, total_symbols, elapsed) = self.parse_and_index_files(python_files)?;
+        // Parse and index files with progress tracking
+        let (file_count, total_symbols, elapsed) =
+            self.parse_and_index_files_with_progress(python_files, progress_callback)?;
 
         tracing::info!(
             "Parallel parsing completed in {:.2}s ({:.0} files/sec)",
